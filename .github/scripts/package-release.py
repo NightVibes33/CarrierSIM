@@ -44,8 +44,8 @@ def package(tag, destination):
         expected[name] = git('cat-file', 'blob', oid.decode())
     destination = pathlib.Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    platforms = 'macOS-Windows' if tag in COMMITS else 'macOS-Windows-Linux'
-    archive_path = destination / f'CarrierSIM-{tag}-{platforms}.zip'
+    suffix = 'macOS-Windows' if tag in COMMITS else 'Python-universal'
+    archive_path = destination / f'CarrierSIM-{tag}-{suffix}.zip'
     raw = git('archive', '--format=zip', commit)
     with zipfile.ZipFile(io.BytesIO(raw)) as source:
         with zipfile.ZipFile(archive_path, 'w') as archive:

@@ -29,6 +29,10 @@ IMSI, операция останавливается до записи.
    Кабель нужен для первого доверия; дальше можно по Wi-Fi (см. БЕЗ КАБЕЛЯ).
 
 БЕЗ PYTHON: ГОТОВАЯ СБОРКА
+Для Linux x64: CarrierSIM-vN-Linux-x64.zip, собран на Ubuntu 22.04.
+Нужен системный usbmuxd. Распакуйте через unzip с сохранением символических
+ссылок и запустите ./CarrierSIM в терминале. Для старых систем используйте
+Python-вариант: CarrierSIM-vN-Python-universal.zip (macOS, Windows, Linux).
 К релизу прикладываются CarrierSIM-vN-macOS-arm64.zip, -macOS-x86_64.zip и
 -Windows-x64.zip: Python и библиотеки внутри, пункты 2 и 3 ПОДГОТОВКИ про
 Python не нужны (iTunes x64 на Windows нужен). Собраны GitHub Actions из того

@@ -2,7 +2,7 @@
 
 Скрипт привязывает SIM-карты iPhone по IMSI к системному пакету оператора **Vodafone_hu** или к любому другому пакету, который есть в iOS телефона. Задуман для включения **звонков по Wi-Fi (VoWiFi)** в России. Заодно включается кодек EVS и 5G на части диапазонов.
 
-Python-скрипт работает на **macOS**, **Windows** и **Linux**. Готовые сборки без Python пока выпускаются для macOS и Windows.
+Python-скрипт работает на **macOS**, **Windows** и **Linux**. Готовые сборки без Python выпускаются для macOS, Windows x64 и Linux x64.
 
 Работает на **iPhone 12–18**, включая модели **mini, Pro, Pro Max, Plus, Air и e**, с **iOS 18–27**, включая **iOS 27.0.1 и 27.2 beta 2**.
 
@@ -30,11 +30,12 @@ Python-скрипт работает на **macOS**, **Windows** и **Linux**. �
 
 ### Без Python: готовая сборка
 
-К релизу прикладываются архивы `CarrierSIM-vN-macOS-arm64.zip`, `CarrierSIM-vN-macOS-x86_64.zip` и `CarrierSIM-vN-Windows-x64.zip`. Python и библиотеки уже внутри. Их собирает GitHub Actions (`.github/workflows/standalone.yml`) из того же тега, происхождение подтверждено attestation: `gh attestation verify CarrierSIM-vN-….zip -R ios-bundles/CarrierSIM`.
+К релизу прикладываются архивы `CarrierSIM-vN-macOS-arm64.zip`, `CarrierSIM-vN-macOS-x86_64.zip`, `CarrierSIM-vN-Windows-x64.zip` и `CarrierSIM-vN-Linux-x64.zip`. Python-вариант для всех трёх ОС — `CarrierSIM-vN-Python-universal.zip`. Python и библиотеки уже внутри. Их собирает GitHub Actions (`.github/workflows/standalone.yml`) из того же тега, происхождение подтверждено attestation: `gh attestation verify CarrierSIM-vN-….zip -R ios-bundles/CarrierSIM`.
 
 1. Распакуйте архив целиком. Рядом с `CarrierSIM` (`CarrierSIM.exe`) лежат `bundle.yaml`, `assets.zip` и README. `runs` появится там же.
 2. macOS: сборка не подписана Apple. Один раз снимите карантин со всей папки: `xattr -dr com.apple.quarantine ~/Downloads/CarrierSIM` (путь укажите свой, куда распаковали), потом запустите `CarrierSIM` двойным щелчком. Без этого macOS не даст открыть файл или его библиотеки.
 3. Windows: iTunes x64 с сайта Apple нужен так же, как и скрипту. Запустите `CarrierSIM.exe`.
+4. Linux: установите системный `usbmuxd`, распакуйте архив через `unzip` с сохранением символических ссылок и запустите `./CarrierSIM` в терминале. Сборка создаётся и проверяется на Ubuntu 22.04 x64; для более старых систем используйте Python-вариант.
 
 Меню и флаги те же, что у скрипта: `CarrierSIM --status`, `CarrierSIM --bundle Vodafone_ro --sims 1` и так далее. Сборка для macOS arm64 проверена без телефона (`--check`, меню). Сборки для Windows и Intel Mac на железе не запускались.
 

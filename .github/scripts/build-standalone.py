@@ -4,9 +4,11 @@
 Usage: build-standalone.py TAG DIST. Run with the Python that has requirements.txt and PyInstaller.
 """
 import importlib.metadata
+import os
 import pathlib
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 import zipfile
@@ -23,6 +25,8 @@ def target():
         return 'macOS-' + ('arm64' if machine == 'arm64' else 'x86_64')
     if sys.platform == 'win32' and machine in ('amd64', 'x86_64'):
         return 'Windows-x64'
+    if sys.platform.startswith('linux') and machine in ('amd64', 'x86_64'):
+        return 'Linux-x64'
     raise SystemExit(f'Unsupported build platform: {sys.platform} {machine}')
 
 
@@ -54,7 +58,8 @@ def main(tag, dist):
     # Smoke test of both roles: the launcher dispatch and carrier.py's own argument parser.
     # --check also imports the pymobiledevice3 services and runs the --_host helper; Windows runners have no iTunes.
     checks = [['--carrier', '--version'], ['--carrier', '--help']]
-    if sys.platform == 'darwin': checks.append(['--carrier', '--check'])
+    if sys.platform == 'darwin' or sys.platform.startswith('linux'):
+        checks.append(['--carrier', '--check'])
     for args in checks:
         subprocess.run([str(exe), *args], check=True, cwd=app, stdout=subprocess.DEVNULL)
     dist = pathlib.Path(dist); dist.mkdir(parents=True, exist_ok=True)
@@ -66,7 +71,15 @@ def main(tag, dist):
     else:
         with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
             for path in sorted(app.rglob('*')):
-                z.write(path, path.relative_to(app.parent))
+                name = path.relative_to(app.parent).as_posix()
+                if path.is_symlink():
+                    # PyInstaller on Linux uses symlinks for shared libraries.
+                    entry = zipfile.ZipInfo(name)
+                    entry.create_system = 3
+                    entry.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    z.writestr(entry, os.readlink(path))
+                else:
+                    z.write(path, name)
     print(archive)
 
 

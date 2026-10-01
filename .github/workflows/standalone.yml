@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, macos-15-intel, windows-latest]
+        os: [macos-26, macos-15-intel, windows-latest, ubuntu-22.04]
     permissions:
       contents: write
       id-token: write
@@ -52,6 +52,11 @@ jobs:
           python -m pip install --disable-pip-version-check pyinstaller==6.22.3
       - name: Build and smoke-test
         run: python .github/scripts/build-standalone.py "$TAG" dist
+      - name: Check the extracted Linux archive without a phone
+        if: runner.os == 'Linux'
+        run: |
+          unzip -q dist/CarrierSIM-*-Linux-x64.zip -d extracted
+          extracted/CarrierSIM/CarrierSIM --carrier --check
       - name: Attest build provenance
         if: github.ref_type == 'tag'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
