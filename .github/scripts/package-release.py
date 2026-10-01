@@ -24,7 +24,7 @@ def hidden(name):
 
 
 def package(tag, destination):
-    if not re.fullmatch(r'v[1-9][0-9]*', tag):
+    if not re.fullmatch(r'v[1-9][0-9]*(?:-beta[1-9][0-9]*)?', tag):
         raise ValueError(f'Invalid release tag: {tag}')
     actual = git('rev-parse', f'refs/tags/{tag}^{{commit}}').decode().strip()
     commit = COMMITS.get(tag, actual)
