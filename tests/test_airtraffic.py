@@ -176,11 +176,19 @@ assert 'carrier' not in sys.modules
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_linux_dispatch_does_not_enter_the_apple_transport(self):
-        with patch.object(carrier.sys, 'platform', 'linux'), \
-                patch.object(apple, 'run_worker') as worker:
-            with self.assertRaisesRegex(RuntimeError, 'macOS и Windows'):
-                carrier.host_worker({'udid': 'phone'})
+        from unittest.mock import AsyncMock
+        assets = [('source', 'destination')]
+        real_platform = sys.platform
+        async def run_native(*args):
+            self.assertEqual(sys.platform, real_platform)
+        # asyncio initializes a global platform-specific policy on its first run.
+        # Select the backend without changing the host OS seen by asyncio.
+        with patch.object(carrier, 'host_backend', return_value='linux-native-atc'), \
+                patch.object(apple, 'run_worker') as worker, \
+                patch('airtraffic_native.run_worker', new_callable=AsyncMock, side_effect=run_native) as native:
+            carrier.host_worker({'udid': 'phone', 'assets': assets, 'connection': 'Network', 'probe': True})
         worker.assert_not_called()
+        native.assert_awaited_once_with('phone', assets, 'Network', carrier.framed, True)
 
     def test_missing_manifest_asset_prevents_all_asset_completions(self):
         host = FakeAppleHost('win32', self.ASSETS, missing=True)
