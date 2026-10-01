@@ -46,6 +46,11 @@ jobs:
       - name: Verify version matches the tag
         if: github.ref_type == 'tag'
         run: python -c 'import os; from carriersim_version import VERSION; assert VERSION == os.environ["TAG"], "Version differs from tag"'
+      - name: Install the Linux USB service for smoke tests
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends usbmuxd
       - name: Install dependencies through the CarrierSIM launcher and PyInstaller
         run: |
           python -c "import launch, sys; sys.exit(0 if launch.install_dependencies(sys.executable, sys.version_info[:2]) else 1)"
