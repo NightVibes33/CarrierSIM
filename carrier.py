@@ -2445,8 +2445,12 @@ def main():
     parser.add_argument('--runs',type=Path,default=ROOT/'runs',metavar='ПАПКА',help='куда сохранять копии и журналы (по умолчанию runs рядом со скриптом; свою папку внутри git-репозитория добавьте в .git/info/exclude)')
     parser._optionals.title='Параметры'
     args=parser.parse_args()
-    print(f'CarrierSIM {VERSION}',flush=True)
-    print('Исследование, разработка и тесты — Vladimir B / vlw (vlwwwwww@gmail.com).',flush=True)
+    if not os.environ.get('CARRIERSIM_MENU'):
+        print(f'CarrierSIM {VERSION}',flush=True)
+        print('Профили операторов · VoWiFi / 5G / EVS',flush=True)
+        print('iPhone / iPad · Россия / Беларусь',flush=True)
+        print('Автор: Vladimir B / vlw · vlwwwwww@gmail.com',flush=True)
+        print('GitHub: https://github.com/ios-bundles/CarrierSIM',flush=True)
     DIAG['args']=args
     if args.bundle:
         args.bundle=args.bundle.strip().removesuffix('.bundle')+'.bundle'

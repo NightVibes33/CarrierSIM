@@ -122,25 +122,34 @@ def python_environment():
     return python
 
 
+def startup_banner():
+    print('\n  CarrierSIM ' + VERSION)
+    print('  Профили операторов · VoWiFi / 5G / EVS')
+    print('  iPhone / iPad · Россия / Беларусь')
+    print('\n  Автор: Vladimir B / vlw · vlwwwwww@gmail.com', flush=True)
+
+
 def menu(wifi=False):
-    print('\n' + '─' * 56)
-    print(f'  CarrierSIM {VERSION}  ·  Vodafone HU')
-    print('  Профиль для SIM России и Беларуси · привязка по IMSI')
-    print('  Исследование, разработка и тесты — Vladimir B / vlw')
-    print('  vlwwwwww@gmail.com')
-    print('─' * 56)
-    print('  1  Установить профиль (по bundle.yaml)\n'
-          '  2  Посмотреть SIM и план установки\n'
-          '  3  Проверить компьютер и файлы\n\n'
-          '  4  Вернуть штатный профиль (выбранной SIM или всем)\n'
-          '  5  Восстановить после сбоя\n'
-          '  6  Открыть справку\n'
-          '  7  Выбрать другой профиль\n'
-          '  8  Диагностика связи (IMS, VoWiFi, ePDG, VoLTE, 5G) — только чтение\n'
-          '  9  Проверка звонка (кодек, канал) — только чтение\n'
-          f'  10 Связь с iPhone: {"Wi-Fi (эксперимент)" if wifi else "кабель"} — переключить\n'
-          '  11 Отчёт о профиле для темы или issue — только чтение\n\n'
-          '  0  Выход\n')
+    print('\n  ' + '─' * 54)
+    print(f'  CarrierSIM {VERSION}  /  Главное меню')
+    print('  GitHub: https://github.com/ios-bundles/CarrierSIM')
+    print(f'  Подключение: {"Wi-Fi · экспериментальный режим" if wifi else "USB · кабель"}')
+    print('  ' + '─' * 54)
+    print('\n  ПРОФИЛИ\n'
+          '   1  Установить профиль из bundle.yaml\n'
+          '   7  Выбрать другой профиль и SIM\n'
+          '   4  Вернуть штатный профиль\n'
+          '   5  Восстановить после сбоя\n\n'
+          '  ПРОВЕРКИ И ОТЧЁТЫ · только чтение\n'
+          '   2  Посмотреть SIM и план установки\n'
+          '   3  Проверить компьютер и файлы\n'
+          '   8  Диагностика связи · IMS, VoWiFi, ePDG, 5G\n'
+          '   9  Проверка звонка · канал и кодек\n'
+          '  11  Отчёт о профиле\n\n'
+          '  НАСТРОЙКИ И ПОМОЩЬ\n'
+          '  10  Переключить USB / Wi-Fi\n'
+          '   6  Справка\n'
+          '   0  Выход\n')
     while True:
         choice = input('  Ваш выбор: ').strip()
         if choice == '0': return None
@@ -201,6 +210,7 @@ def main():
     if len(sys.argv) > 1:
         python = python_environment()
         return run_carrier(python, sys.argv[1:])
+    startup_banner()
     wifi = False
     while True:
         args = menu(wifi)
