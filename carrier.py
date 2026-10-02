@@ -17,6 +17,7 @@ import stat
 import struct
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from carriersim_version import VERSION
@@ -1488,6 +1489,10 @@ DIAG_PATTERNS = {
     'sa': re.compile(r'5G Standalone (enabled|disabled)(?: by (\w+))?'),
     'ims_reg': re.compile(r'UE is Registered for ([\w+]+) on (\w+)'),
     'call_status': re.compile(r'slot k\w+ call status (\w+)'),
+    # VoWiFi tunnel: NetworkExtension's IKEv2 client runs inside CommCenter and logs to the same stream.
+    'epdg': re.compile(r'<NEIKEv2Transport> UDP(?: NAT-T)? \S+ -> (\S+):(?:500|4500)\b'),
+    'ike_state': re.compile(r'IKEv2IKESA\[[^\]]*\] state (\w+) -> (\w+)'),
+    'ike_error': re.compile(r'NEIKEv2ErrorDomain Code=(\d+) "([^"]*)"'),
 }
 # P-Access-Network-Info in SIP says which radio carried the call.
 SIP_ACCESS = {'IEEE-802.11':'Wi-Fi (VoWiFi)','3GPP-E-UTRAN':'LTE (VoLTE)','3GPP-E-UTRAN-FDD':'LTE (VoLTE)',
@@ -1586,7 +1591,7 @@ class LogSinkError(Exception):
     """A local failure (disk, parser) that must not look like a dropped log stream."""
 
 
-async def commcenter_stream(device, seconds, log_path, on_entry):
+async def commcenter_stream(device, seconds, log_path, on_entry, stop=None):
     from pymobiledevice3.exceptions import ConnectionTerminatedError
     from pymobiledevice3.services.os_trace import OsTraceService
     pid = await commcenter_pid(device, first=True)
@@ -1596,8 +1601,9 @@ async def commcenter_stream(device, seconds, log_path, on_entry):
     loop = asyncio.get_running_loop()
     deadline = loop.time() + seconds
     reconnects = 0; down_since = None; received = 0
+    stopped = False
     with log_path.open('w', encoding='utf-8') as f:
-        while (left := deadline - loop.time()) > 0:
+        while not stopped and not (stop and stop()) and (left := deadline - loop.time()) > 0:
             window = asyncio.timeout(left)
             # After a drop the reconnect itself is bounded too: a hung connect over Wi-Fi must not eat the rest.
             budget = asyncio.timeout(None if down_since is None else
@@ -1621,6 +1627,10 @@ async def commcenter_stream(device, seconds, log_path, on_entry):
                                 on_entry(e, msg)
                             except Exception as error:
                                 raise LogSinkError() from error
+                            # Enter or "everything needed has arrived": end like the deadline does.
+                            if stop and stop():
+                                stopped = True; break
+                    if stopped: break
                     # pymobiledevice3 11.12.5 never ends syslog(); a finite stream would count as a drop.
                     raise ConnectionTerminatedError('log relay ended')
             except LogSinkError as error:
@@ -1707,6 +1717,9 @@ def diag_report(state, rows):
             ('5G SA', g('sa') and (g('sa') == 'enabled' and 'включён' or f"выключен ({g('sa',1) or 'причина не указана'})")),
             ('Звонок через', g('call_access')),
             ('Кодек звонка', g('codec') and CODEC_NAMES.get(g('codec'), g('codec'))),
+            ('ePDG', g('epdg')),
+            ('IKE с ePDG', g('ike_state') and f"{g('ike_state')} → {g('ike_state',1)}"),
+            ('Ошибка IKE', g('ike_error') and f"код {g('ike_error')}: {g('ike_error',1)}"),
         ]
         shown = [(name, val) for name, val in items if val]
         for name, val in shown:
@@ -1716,25 +1729,77 @@ def diag_report(state, rows):
     return '\n'.join(lines)
 
 
+def enter_pressed():
+    # Enter ends the collection early. Only for actions that read nothing from the keyboard
+    # afterwards: the reader thread stays blocked in readline until the process exits.
+    if not sys.stdin or not sys.stdin.isatty():
+        return None
+    pressed = threading.Event()
+    threading.Thread(target=lambda: (sys.stdin.readline(), pressed.set()), daemon=True).start()
+    return pressed.is_set
+
+
+# After the airplane cycle IMS registers first; the VoWiFi tunnel (IKE with ePDG) may follow later.
+DIAG_SETTLE_SECONDS = 10
+
+
+AIRPLANE_CHANGE = re.compile(r'Airplane mode changed from (?:true|false) to (true|false)')
+
+
+def registered_again(state, rows, collect):
+    # The diagnosis is complete once every SIM re-registered in IMS after airplane mode was turned off,
+    # plus a pause for the ePDG lines. CommCenter logs the switch; on the cable the log may also drop
+    # instead, which counts the same. Without either: full time.
+    slots = {r['Slot'] for r in rows if r.get('Slot') in ('kOne', 'kTwo')}
+    seen = {}
+    armed = False
+    def on_entry(e, msg):
+        nonlocal armed
+        collect(e, msg)
+        if m := AIRPLANE_CHANGE.search(msg):
+            armed = m.group(1) == 'false'; seen.clear()
+        elif armed and (slot := log_slot(e)) in slots and DIAG_PATTERNS['ims_reg'].search(msg):
+            seen.setdefault(slot, time.monotonic())
+    def reset():
+        nonlocal armed
+        armed = True; seen.clear()
+        collect.reset()
+    on_entry.reset = reset
+    def done():
+        return bool(slots) and slots <= seen.keys() and time.monotonic() - max(seen.values()) >= DIAG_SETTLE_SECONDS
+    return on_entry, done
+
+
+def full_log_hint(out):
+    return (f'Полный журнал CommCenter за это время, с IKE к ePDG (номера замаскированы): {out / "commcenter.log"}')
+
+
 async def run_diagnose(device, args, rows):
     out = args.runs / (datetime.now().strftime('%Y%m%d-%H%M%S-') + 'diagnose')
     out.mkdir(parents=True, mode=0o700)
-    print(f'Собираю журнал CommCenter {args.seconds} с. Чтобы iOS заново прошла регистрацию,\n'
-          'включите и через 10 секунд выключите авиарежим (Wi-Fi оставьте включённым).', flush=True)
+    pressed = enter_pressed()
+    print(f'Собираю журнал CommCenter до {args.seconds} с. Чтобы iOS заново прошла регистрацию,\n'
+          'включите и через 10 секунд выключите авиарежим (Wi-Fi оставьте включённым).\n'
+          'Сбор закончится сам, когда SIM снова зарегистрируются' + ('; Enter — закончить раньше.' if pressed else '.'),
+          flush=True)
     state = {}
-    await commcenter_stream(device, args.seconds, out / 'commcenter.log', diag_collect(state))
+    on_entry, done = registered_again(state, rows, diag_collect(state))
+    await commcenter_stream(device, args.seconds, out / 'commcenter.log', on_entry,
+                            stop=lambda: done() or bool(pressed and pressed()))
     report = diag_report(state, rows)
     print(report, flush=True)
     (out / 'report.txt').write_text(report + '\n', encoding='utf-8')
-    print(f'\nСлот SIM определяется по журналу эвристически. Журнал (замаскирован): {out}', flush=True)
+    print('\nСлот SIM определяется по журналу эвристически. ' + full_log_hint(out), flush=True)
     return 0
 
 
 async def run_watch_call(device, args, rows):
     out = args.runs / (datetime.now().strftime('%Y%m%d-%H%M%S-') + 'watch-call')
     out.mkdir(parents=True, mode=0o700)
-    print(f'Слушаю журнал CommCenter {args.seconds} с. Сделайте тестовый звонок сейчас.\n'
-          'Для VoWiFi: авиарежим + Wi-Fi. Для VoLTE: Wi-Fi выключен.', flush=True)
+    pressed = enter_pressed()
+    print(f'Слушаю журнал CommCenter до {args.seconds} с. Сделайте тестовый звонок сейчас.\n'
+          'Для VoWiFi: авиарежим + Wi-Fi. Для VoLTE: Wi-Fi выключен.' +
+          ('\nПосле звонка нажмите Enter, чтобы закончить раньше.' if pressed else ''), flush=True)
     state = {}
     collect = diag_collect(state)
     def on_entry(e, msg):
@@ -1747,13 +1812,13 @@ async def run_watch_call(device, args, rows):
         elif m := DIAG_PATTERNS['call_status'].search(msg):
             print(f'  {e.timestamp:%H:%M:%S} {slot} звонок: {m.group(1)}', flush=True)
     on_entry.reset = collect.reset
-    await commcenter_stream(device, args.seconds, out / 'commcenter.log', on_entry)
+    await commcenter_stream(device, args.seconds, out / 'commcenter.log', on_entry, stop=pressed)
     codecs = sorted({CODEC_NAMES.get(v['codec'][0], v['codec'][0]) for v in state.values() if 'codec' in v})
     print('\nСогласованные кодеки: ' + (', '.join(codecs) if codecs else 'звонков с ответом SDP не было'), flush=True)
     report = diag_report(state, rows)
     print(report, flush=True)
     (out / 'report.txt').write_text(report + '\n', encoding='utf-8')
-    print(f'\nЖурнал (замаскирован): {out}', flush=True)
+    print('\n' + full_log_hint(out), flush=True)
     return 0
 
 

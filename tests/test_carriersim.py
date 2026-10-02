@@ -522,7 +522,7 @@ class LogStreamTest(unittest.IsolatedAsyncioTestCase):
         return SimpleNamespace(message=text, label=None, filename=filename,
                                timestamp=__import__('datetime').datetime(2026, 9, 30))
 
-    async def collect(self, plan, seconds=0.5, pids=None, on_entry=None):
+    async def collect(self, plan, seconds=0.5, pids=None, on_entry=None, stop=None):
         # plan: one item per syslog() call — a list of texts (or (text, filename)), optionally ending in an exception.
         # pids: one item per get_pid_list() call — True, False (no CommCenter) or an exception to raise.
         plan = list(plan); pids = list(pids or []); seen = []; self.syslog_pids = []
@@ -550,7 +550,7 @@ class LogStreamTest(unittest.IsolatedAsyncioTestCase):
                 patch.object(carrier.asyncio, 'sleep', AsyncMock()), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             await carrier.commcenter_stream(None, seconds, pathlib.Path(directory, 'log'),
-                                            on_entry or (lambda e, msg: seen.append(msg)))
+                                            on_entry or (lambda e, msg: seen.append(msg)), stop=stop)
         return seen, output.getvalue()
 
     async def test_drop_then_reconnect_counts_one_reconnect(self):
@@ -620,6 +620,73 @@ class LogStreamTest(unittest.IsolatedAsyncioTestCase):
         def broken(e, msg): raise OSError(28, 'No space left on device')
         with self.assertRaises(OSError):
             await self.collect([['before']], on_entry=broken)
+
+    async def test_stop_ends_collection_before_the_deadline(self):
+        seen = []
+        def on_entry(e, msg): seen.append(msg)
+        loop = asyncio.get_running_loop(); started = loop.time()
+        await self.collect([['a', 'b', 'c']], seconds=30, on_entry=on_entry, stop=lambda: 'b' in seen)
+        self.assertEqual(seen, ['a', 'b'])
+        self.assertLess(loop.time() - started, 5)
+
+
+class DiagnoseTest(unittest.TestCase):
+    # Lines from a real CommCenter log (iPhone 16 Pro Max, iOS 27.0.1, MegaFon, airplane mode on and off).
+    IKE_LINES = [
+        'Cancelling client BA2D064AF2C415DF for <NEIKEv2Transport> UDP NAT-T 10.10.10.150:4500 -> 85.26.231.145:4500',
+        'IKEv2IKESA[13.13, BA2D064AF2C415DF-A96D618205B09415] state Connected -> Disconnected error (null) -> '
+        'Error Domain=NEIKEv2ErrorDomain Code=2 "FailedToSend: delete reply" UserInfo={NSLocalizedDescription=x}',
+    ]
+
+    @staticmethod
+    def entry(text, category=''):
+        return SimpleNamespace(message=text, label=SimpleNamespace(subsystem='com.apple.CommCenter', category=category))
+
+    def test_epdg_block_reports_gateway_state_and_error(self):
+        state = {}; collect = carrier.diag_collect(state)
+        for line in self.IKE_LINES:
+            collect(self.entry(line), line)
+        report = carrier.diag_report(state, [{'Slot': 'kOne', 'MCC': '250', 'MNC': '02'}])
+        self.assertIn('ePDG                 85.26.231.145', report)
+        self.assertIn('Connected → Disconnected', report)
+        self.assertIn('код 2: FailedToSend: delete reply', report)
+
+    def test_settles_only_after_every_sim_registered_again_after_the_drop(self):
+        rows = [{'Slot': 'kOne'}, {'Slot': 'kTwo'}]
+        reg = 'ImsRegistrationState: UE is Registered for Voice+Sms on kLTE (CarrierBundle)'
+        clock = [100.0]
+        with patch.object(carrier.time, 'monotonic', lambda: clock[0]):
+            on_entry, done = carrier.registered_again({}, rows, carrier.diag_collect({}))
+            # Registration before the airplane cycle proves nothing.
+            on_entry(self.entry(reg, '5wi.ctr.1.1'), reg); on_entry(self.entry(reg, '5wi.ctr.2.1'), reg)
+            clock[0] += 60; self.assertFalse(done())
+            on_entry.reset()
+            on_entry(self.entry(reg, '5wi.ctr.1.1'), reg)
+            clock[0] += 60; self.assertFalse(done())
+            on_entry(self.entry(reg, '5wi.ctr.2.1'), reg)
+            clock[0] += carrier.DIAG_SETTLE_SECONDS - 1; self.assertFalse(done())
+            clock[0] += 1; self.assertTrue(done())
+
+    def test_settles_after_airplane_mode_turned_off_without_a_drop(self):
+        reg = 'ImsRegistrationState: UE is Registered for Voice+Sms on iWLAN (CarrierBundle)'
+        clock = [100.0]
+        with patch.object(carrier.time, 'monotonic', lambda: clock[0]):
+            on_entry, done = carrier.registered_again({}, [{'Slot': 'kOne'}], carrier.diag_collect({}))
+            for line in ('Airplane mode changed from false to true', reg):
+                on_entry(self.entry(line, 'cm' if 'Airplane' in line else '5wi.ctr.1.1'), line)
+            clock[0] += 60; self.assertFalse(done())  # still in airplane mode
+            for line in ('Airplane mode changed from true to false', reg):
+                on_entry(self.entry(line, 'cm' if 'Airplane' in line else '5wi.ctr.1.1'), line)
+            clock[0] += carrier.DIAG_SETTLE_SECONDS; self.assertTrue(done())
+
+    def test_no_sims_never_settles(self):
+        on_entry, done = carrier.registered_again({}, [], carrier.diag_collect({}))
+        on_entry.reset()
+        self.assertFalse(done())
+
+    def test_enter_is_not_read_without_a_terminal(self):
+        with patch.object(carrier.sys, 'stdin', io.StringIO('\n')):
+            self.assertIsNone(carrier.enter_pressed())
 
 
 class ErrorTextTest(unittest.IsolatedAsyncioTestCase):
