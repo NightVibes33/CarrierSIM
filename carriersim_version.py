@@ -1,3 +1,3 @@
 """CarrierSIM version shared by the launcher and diagnostic logs."""
 
-VERSION = 'v6-beta1'
+VERSION = 'v6'
