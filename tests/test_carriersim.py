@@ -58,25 +58,6 @@ class LinuxBackendTest(unittest.TestCase):
             self.assertEqual(carrier.linux_usbmuxd_status(), 'не найден')
 
 
-class CheckedPhoneTest(unittest.TestCase):
-    def test_verified_linux_usb_combinations_do_not_warn(self):
-        for product, board, version, build in (
-            ('iPhone16,2', 'D84AP', '26.6.1', '23G83'),
-            ('iPhone14,7', 'D27AP', '26.3', '23D127'),
-            ('iPhone18,3', 'V57AP', '26.6.1', '23G83'),
-            ('iPhone18,1', 'V53AP', '26.6.2', '23G90'),
-            ('iPhone16,1', 'D83AP', '18.7.7', '22H340'),
-            ('iPhone15,2', 'D73AP', '26.3.1', '23D8133'),
-        ):
-            info = {'ProductType': product, 'HardwareModel': board,
-                    'ProductVersion': version, 'BuildVersion': build,
-                    'ActivationState': 'Activated'}
-            output = io.StringIO()
-            with patch.object(carrier.sys, 'platform', 'linux'), contextlib.redirect_stdout(output):
-                carrier.check_phone(info)
-            self.assertEqual(output.getvalue(), '')
-
-
 class HostSessionTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()

@@ -1202,26 +1202,6 @@ def remove_imsi_links(original, only=None):
     return result
 
 
-def check_phone(info):
-    model = MODELS.get(info['ProductType'])
-    checked_linux = (
-        (info['ProductType'], str(info['HardwareModel']).upper(), info['ProductVersion'], info['BuildVersion'])
-        in (('iPhone16,2', 'D84AP', '26.6.1', '23G83'),
-            ('iPhone14,7', 'D27AP', '26.3', '23D127'),
-            ('iPhone18,3', 'V57AP', '26.6.1', '23G83'),
-            ('iPhone18,1', 'V53AP', '26.6.2', '23G90'),
-            ('iPhone16,1', 'D83AP', '18.7.7', '22H340'),
-            ('iPhone15,2', 'D73AP', '26.3.1', '23D8133'))
-        and sys.platform.startswith('linux')
-    )
-    if (not model or str(info['HardwareModel']).upper() not in model['boards']
-            or not (checked_linux or
-                    (info['ProductVersion'] == '27.0' and info['BuildVersion'] in ('24A435', '24A437')))):
-        print('Предупреждение: модель, плата или версия iOS не проверена. '
-              'Скрипт МОЖЕТ не работать. Продолжаю без ограничения совместимости.', flush=True)
-    require(info['ActivationState']=='Activated','iPhone не активирован.')
-
-
 async def choose_device(udid, wait_seconds=180):
     from pymobiledevice3.usbmux import list_devices
     from pymobiledevice3.exceptions import ConnectionFailedToUsbmuxdError, NoDeviceConnectedError
@@ -1956,7 +1936,8 @@ async def execute(args,assets):
     device=await ready_device(udid,args.wait_seconds)
     run=None
     try:
-        info=await device_info(device); DIAG['info']=info; check_phone(info)
+        info=await device_info(device); DIAG['info']=info
+        require(info['ActivationState']=='Activated','iPhone не активирован.')
         rows=await device.get_value(key='CarrierBundleInfoArray') or []
         top=await device.get_value() or {}
         slots=SLOT_CHOICES[args.sims]
