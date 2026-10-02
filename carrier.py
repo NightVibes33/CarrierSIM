@@ -550,7 +550,9 @@ def grappa_hint(cause=''):
             'повтор не поможет.')
     if sys.platform == 'win32':
         text += (' Переустановите iTunes: удалите его (и версию из Microsoft Store, если есть), установите iTunes x64 '
-                 'с сайта Apple (https://support.apple.com/en-us/106372), запустите один раз и повторите. '
+                 'по ссылке https://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362, '
+                 'запустите один раз и повторите. '
+                 'Если скачивание на 4PDA выдаёт ошибку 404, нужна регистрация, вход в аккаунт и некоторая активность на форуме. '
                  'Подробнее — README, раздел «Grappa session could not be established».')
     else:
         text += ' Скопируйте блок отладки выше в issue на GitHub.'
@@ -783,6 +785,18 @@ def error_line(error):
     # "Type: text" for journals and the final report, without "KeyError: KeyError".
     text = error_text(error)
     return type(error).__name__ + ('' if text == type(error).__name__ else ': ' + text)
+
+
+def backend_error(error, platform_name=None):
+    text = 'AirTraffic backend недоступен: ' + str(error)
+    if (platform_name or sys.platform) == 'win32' and '.dll' in str(error).lower():
+        text += ('\n\nПричина: не удалось найти или загрузить библиотеки Apple для AirTraffic. '
+                 'Установка компонентов iTunes может быть неполной или несовместимой.'
+                 '\nУдалите iTunes и установите его по ссылке ниже:'
+                 '\nhttps://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362'
+                 '\nЕсли скачивание на 4PDA выдаёт ошибку 404, нужна регистрация, вход в аккаунт и некоторая активность на форуме.'
+                 '\nПосле установки перезагрузите компьютер и повторите запуск CarrierSIM.')
+    return text
 
 
 def framed(value):
@@ -2399,7 +2413,7 @@ def print_diagnostics(error):
         rows.append(('Где', ' → '.join(f'{f.name}:{f.lineno}' for f in frames[-4:])))
     if DIAG.get('session_log'): rows.append(('Журнал сеанса', DIAG['session_log']))
     text = '\n'.join(f'{k}: {v}' for k, v in rows)
-    print('\n===== Данные для отладки: скопируйте этот блок автору =====', file=sys.stderr)
+    print('\n===== Данные для отладки =====', file=sys.stderr)
     print(text, file=sys.stderr)
     print('===== конец блока =====\n', file=sys.stderr, flush=True)
     if run:
@@ -2487,7 +2501,7 @@ def main():
                          capture_output=True,text=True,encoding='utf-8',timeout=20)
     frames=[json.loads(l.split(':',1)[1]) for l in check.stdout.splitlines() if l.startswith('CARRIER_SWAP_JSON:')]
     require(check.returncode==0 and frames and frames[-1].get('ok'),
-            'AirTraffic backend недоступен: '+str(frames[-1].get('error') if frames else check.stderr.strip()))
+            backend_error(frames[-1].get('error') if frames else check.stderr.strip()))
     if args.check:
         # Every pymobiledevice3 module the phone steps use; a broken install or build fails here, not mid-run.
         import pymobiledevice3.lockdown, pymobiledevice3.usbmux, pymobiledevice3.services.afc, \

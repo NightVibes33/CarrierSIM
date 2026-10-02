@@ -690,6 +690,16 @@ class DiagnoseTest(unittest.TestCase):
 
 
 class ErrorTextTest(unittest.IsolatedAsyncioTestCase):
+    def test_windows_backend_dll_failure_explains_how_to_reinstall_itunes(self):
+        error = "Failed to load dynlib/dll 'C:\\Apple\\AirTrafficHost.dll'. Most likely this dynlib/dll was not found when the application was frozen."
+        message = carrier.backend_error(error, 'win32')
+        self.assertIn(error, message)
+        self.assertIn('Причина: не удалось найти или загрузить библиотеки Apple', message)
+        self.assertIn('Удалите iTunes и установите его по ссылке ниже:', message)
+        self.assertIn('https://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362', message)
+        self.assertNotIn('Удалите iTunes', carrier.backend_error(error, 'darwin'))
+        self.assertNotIn('Удалите iTunes', carrier.backend_error('host timed out', 'win32'))
+
     def test_empty_exceptions_get_readable_text(self):
         from pymobiledevice3.exceptions import ConnectionTerminatedError, ConnectionFailedError
         self.assertEqual(carrier.error_text(TimeoutError()), 'время ожидания истекло')
@@ -852,7 +862,7 @@ class GrappaTest(unittest.TestCase):
             self.assertTrue(carrier.grappa_refused(log))
 
     def test_hint_is_not_retried_and_names_the_fix_on_windows(self):
-        for platform, fix in (('win32', 'support.apple.com/en-us/106372'), ('darwin', 'блок отладки выше')):
+        for platform, fix in (('win32', 'https://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362'), ('darwin', 'блок отладки выше')):
             with self.subTest(platform=platform), patch.object(carrier.sys, 'platform', platform):
                 hint = carrier.grappa_hint()
                 self.assertIn(fix, hint)

@@ -59,8 +59,10 @@ class AppleHost:
                 self.handles.append(os.add_dll_directory(str(p)))
             def load(name):
                 candidates = [p/name for p in paths if (p/name).is_file()]
-                require(candidates, 'Не найдена ' + name + '. Установите iTunes x64 с сайта Apple '
-                        'или укажите папки библиотек через --apple-dir. Версия Microsoft Store может не подойти.')
+                require(candidates, 'Не найдена ' + name + '. Установите iTunes x64 по ссылке '
+                        'https://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362 '
+                        'или укажите папки библиотек через --apple-dir. Версия Microsoft Store может не подойти. '
+                        'Если скачивание на 4PDA выдаёт ошибку 404, нужна регистрация, вход в аккаунт и некоторая активность на форуме.')
                 return C.CDLL(str(candidates[0]), winmode=0x1100)
             self.cf = load('CoreFoundation.dll')
             self.at = load('AirTrafficHost.dll')

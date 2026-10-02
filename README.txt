@@ -25,7 +25,10 @@ IMSI, операция останавливается до записи.
 1. Распакуйте архив целиком в папку, куда можно писать, например «Загрузки».
 2. Установите Python 3.11 или новее (на Windows — x64); рекомендуется 3.12.
 3. Windows: нужны службы и библиотеки Apple из настольного iTunes x64
-   с сайта Apple. Apple Devices и iTunes из Microsoft Store автоматически
+   по инструкции: https://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362
+   Если скачивание на 4PDA выдаёт ошибку 404, нужна регистрация,
+   вход в аккаунт и некоторая активность на форуме.
+   Apple Devices и iTunes из Microsoft Store автоматически
    не находятся (папки библиотек можно указать через --apple-dir).
    macOS: используются системные библиотеки, ставить ничего не нужно.
    Linux: нужен системный usbmuxd; библиотека Apple AirTrafficHost не нужна.
@@ -40,7 +43,7 @@ IMSI, операция останавливается до записи.
 Python-вариант: CarrierSIM-vN-Python-universal.zip (macOS, Windows, Linux).
 К релизу прикладываются CarrierSIM-vN-macOS-arm64.zip, -macOS-x86_64.zip и
 -Windows-x64.zip: Python и библиотеки внутри, пункты 2 и 3 ПОДГОТОВКИ про
-Python не нужны (iTunes x64 на Windows нужен). Собраны GitHub Actions из того
+Python не нужны (iTunes x64 на Windows нужен, ссылка в ПОДГОТОВКЕ). Собраны GitHub Actions из того
 же тега; проверка: gh attestation verify ФАЙЛ.zip -R ios-bundles/CarrierSIM.
 Распакуйте архив целиком: bundle.yaml, assets.zip и runs лежат рядом с
 CarrierSIM (CarrierSIM.exe). macOS: сборка не подписана Apple, поэтому один раз
@@ -313,8 +316,11 @@ ATHostConnectionCreateWithLibrary и отправляет RequestingSync с го
 работу VoWiFi, EVS или 5G.
 
 Если ошибка осталась, повтор не поможет. Удалите iTunes (и версию из Microsoft Store),
-поставьте полный iTunes x64 с https://support.apple.com/en-us/106372 (не
-только AppleMobileDeviceSupport64.msi из него), запустите его один раз и
+поставьте полный iTunes x64 по инструкции:
+https://4pda.to/forum/index.php?showtopic=554020&st=3760#entry107393362
+Если скачивание на 4PDA выдаёт ошибку 404, нужна регистрация,
+вход в аккаунт и некоторая активность на форуме.
+(не только AppleMobileDeviceSupport64.msi из него), запустите его один раз и
 повторите. В одном случае помогла только версия 12.11.0.26, и перед этим
 пришлось удалить старую медиатеку iTunes.
 
