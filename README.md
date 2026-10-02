@@ -1,5 +1,7 @@
 # CarrierSIM
 
+[Обсуждение на 4PDA](https://4pda.to/forum/index.php?showtopic=1055886&view=findpost&p=145261196)
+
 Скрипт привязывает SIM-карты iPhone по IMSI к системному пакету оператора **Vodafone_hu** или к любому другому пакету, который есть в iOS телефона. Задуман для включения **звонков по Wi-Fi (VoWiFi)** в России. Заодно включается кодек EVS и 5G на части диапазонов.
 
 Python-скрипт работает на **macOS**, **Windows** и **Linux**. Готовые сборки без Python выпускаются для macOS, Windows x64 и Linux x64.

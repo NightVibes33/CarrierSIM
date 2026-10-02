@@ -1,4 +1,9 @@
-CarrierSIM — Vodafone HU (или другой пакет оператора) для SIM iPhone
+CarrierSIM
+Профили операторов · iPhone / iPad
+VoWiFi / 5G / EVS · Россия / Беларусь
+
+Обсуждение на 4PDA:
+https://4pda.to/forum/index.php?showtopic=1055886&view=findpost&p=145261196
 
 Python-скрипт для macOS, Windows и Linux. Каждой выбранной SIM по полному IMSI
 назначается системный пакет оператора: по умолчанию Vodafone_hu, для МТС
