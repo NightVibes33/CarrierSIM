@@ -2446,9 +2446,9 @@ def main():
     parser._optionals.title='Параметры'
     args=parser.parse_args()
     if not os.environ.get('CARRIERSIM_MENU'):
-        print(f'CarrierSIM {VERSION}',flush=True)
-        print('Профили операторов · VoWiFi / 5G / EVS',flush=True)
-        print('iPhone / iPad · Россия / Беларусь',flush=True)
+        print(f'CarrierSIM · {VERSION}',flush=True)
+        print('Профили операторов · iPhone / iPad',flush=True)
+        print('VoWiFi / 5G / EVS  · Россия / Беларусь',flush=True)
         print('Автор: Vladimir B / vlw · vlwwwwww@gmail.com',flush=True)
         print('GitHub: https://github.com/ios-bundles/CarrierSIM',flush=True)
     DIAG['args']=args

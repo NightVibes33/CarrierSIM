@@ -123,18 +123,19 @@ def python_environment():
 
 
 def startup_banner():
-    print('\n  CarrierSIM ' + VERSION)
-    print('  Профили операторов · VoWiFi / 5G / EVS')
-    print('  iPhone / iPad · Россия / Беларусь')
+    print('\n  CarrierSIM · ' + VERSION)
+    print('  Профили операторов · iPhone / iPad')
+    print('  VoWiFi / 5G / EVS  · Россия / Беларусь')
     print('\n  Автор: Vladimir B / vlw · vlwwwwww@gmail.com', flush=True)
 
 
 def menu(wifi=False):
-    print('\n  ' + '─' * 54)
-    print(f'  CarrierSIM {VERSION}  /  Главное меню')
-    print('  GitHub: https://github.com/ios-bundles/CarrierSIM')
-    print(f'  Подключение: {"Wi-Fi · экспериментальный режим" if wifi else "USB · кабель"}')
-    print('  ' + '─' * 54)
+    title = f'CarrierSIM · {VERSION}'
+    connection = 'Wi-Fi · эксперимент' if wifi else 'USB · кабель'
+    print('\n  ' + '─' * 50)
+    print(f'  {title:<38}{connection}')
+    print('  https://github.com/ios-bundles/CarrierSIM')
+    print('  ' + '─' * 50)
     print('\n  ПРОФИЛИ\n'
           '   1  Установить профиль из bundle.yaml\n'
           '   7  Выбрать другой профиль и SIM\n'

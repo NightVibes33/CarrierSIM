@@ -1059,7 +1059,7 @@ class VersionTest(unittest.TestCase):
     def test_menu_displays_version(self):
         with patch('builtins.input', return_value='0'), contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertIsNone(launch.menu())
-        self.assertIn(f'CarrierSIM {VERSION}', output.getvalue())
+        self.assertIn(f'CarrierSIM · {VERSION}', output.getvalue())
 
     def test_other_profile_shows_plan_and_writes_only_after_yes(self):
         for answer, runs in (('', 2), ('д', 2), ('н', 1)):
