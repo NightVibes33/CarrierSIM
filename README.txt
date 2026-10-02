@@ -2,6 +2,9 @@ CarrierSIM
 Профили операторов · iPhone / iPad
 VoWiFi / 5G / EVS · Россия / Беларусь
 
+iPad Wi-Fi + Cellular: нужна активная SIM или eSIM; установка пока
+не проверена на устройстве. На моделях Wi-Fi установка недоступна.
+
 Обсуждение на 4PDA:
 https://4pda.to/forum/index.php?showtopic=1055886&view=findpost&p=145261196
 
@@ -38,6 +41,10 @@ IMSI, операция останавливается до записи.
 
 БЕЗ PYTHON: ГОТОВАЯ СБОРКА
 Для Linux x64: CarrierSIM-vN-Linux-x64.zip, собран на Ubuntu 22.04.
+Если устройство не определяется, разблокируйте его, разрешите подключение
+в Настройки → Конфиденциальность и безопасность → Проводные аксессуары
+и переподключите кабель. На Linux: sudo systemctl restart usbmuxd.
+
 Нужен системный usbmuxd. Распакуйте через unzip с сохранением символических
 ссылок и запустите ./CarrierSIM в терминале. Для старых систем используйте
 Python-вариант: CarrierSIM-vN-Python-universal.zip (macOS, Windows, Linux).
@@ -588,6 +595,9 @@ SHA256 5f8166b3e33d14230273b85320795f1eb1f29214d2c0594056d0b0e448c029f1
 берёт первый подходящий из трёх. O2_Germany нужен, когда AVEA_tr
 и Swisscom_ch оба не подходят.
 Каталог: https://itunes.apple.com/WebObjects/MZStore.woa/wa/com.apple.jingle.appserver.client.MZITunesClientCheck/version/
+iPad: AVEA_tr_iPad.ipcc 72.1 из того же каталога Apple (iPad / 27.0).
+https://updates.cdn-apple.com/20260914/carrierbundles/140-93455/B633E5DE-90AC-41D9-A263-01285F47EEE3/AVEA_tr_iPad.ipcc
+SHA256 cb0f39ab4500d4348132d40f54cb56e78a42289fc44125bbd45ddc1460e20249
 Таблица устройств: https://api.ipsw.me/v4/devices?type=ipsw (2026-09-27).
 iPhone 18 Pro: https://www.apple.com/iphone-18-pro/specs/
 Протокол переноса основан на AirLift (0xjohnnydev/airlift, c75b3ea),

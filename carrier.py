@@ -21,6 +21,7 @@ import threading
 import time
 import zipfile
 from carriersim_version import VERSION
+from device_models import MODELS
 
 # A PyInstaller build (CarrierSIM executable) keeps bundle.yaml, assets.zip and runs next to itself.
 FROZEN = getattr(sys, 'frozen', False)
@@ -28,7 +29,9 @@ SELF = Path(sys.executable if FROZEN else __file__).resolve()
 ROOT = SELF.parent
 
 PARENT = '/var/mobile/Library/Carrier Bundles'
-TARGET = PARENT + '/iPhone'
+DEVICE_FAMILY = 'iPhone'
+TARGET = PARENT + '/' + DEVICE_FAMILY
+SYSTEM_BUNDLE_DIR = 'System/Library/Carrier Bundles/' + DEVICE_FAMILY
 PAYLOAD_PATH = 'q0/q1/q2/q3/q4/payload'
 BUNDLE = 'Vodafone_hu.bundle'
 MAX_BYTES = 64 * 1024 * 1024
@@ -162,7 +165,7 @@ def staging_archive(payload=None):
                 require(re.fullmatch(r'[A-Za-z0-9_]+\.bundle', name), 'Неожиданная системная ссылка')
                 system_names.add(name)
         for name in system_names:
-            directories('System/Library/Carrier Bundles/iPhone/'+name)
+            directories(SYSTEM_BUNDLE_DIR+'/'+name)
         tree.update({PAYLOAD_PATH+'/'+n:v for n,v in payload.items()})
     b = io.BytesIO()
     with zipfile.ZipFile(b, 'w', allowZip64=False) as z:
@@ -272,9 +275,9 @@ BOOK_LISTS = ('Books/Books.plist', 'Books/Backup-Books.plist', 'Books/Sync/Books
 def our_trace(value):
     # This script's asset IDs: unique airlift-* staging names or the catalog path they resolve to.
     if isinstance(value, bytes):
-        return b'airlift-' in value or b'Carrier Bundles/iPhone' in value
+        return b'airlift-' in value or any(p in value for p in (b'Carrier Bundles/iPhone', b'Carrier Bundles/iPad'))
     value = str(value or '')
-    return 'airlift-' in value or value.endswith('Carrier Bundles/iPhone')
+    return 'airlift-' in value or value.endswith(('Carrier Bundles/iPhone', 'Carrier Bundles/iPad'))
 
 
 def ours(item):
@@ -579,7 +582,7 @@ async def transfer(device, run, payload=None, expected=None, recovery=False):
     # same path (Media/<source>/../../Library = /var/mobile/Library) but is unique per run.
     assets = [(f'../../{source}/p0/p1/p2/link', link),
               (f'../../{source}/../../' + TARGET.removeprefix('/var/mobile/'), exported),
-              ('../../' + final_source, link + '/iPhone')]
+              ('../../' + final_source, link + '/' + DEVICE_FAMILY)]
     journal = {'schema': 1, 'udid_hash': digest(device.udid.encode()), 'target': TARGET,
                'source': source, 'link': link, 'exported': exported,
                'complete': False, 'phase': 'created', 'payload_hash': tree_hash(payload) if payload is not None else None}
@@ -690,13 +693,41 @@ async def connect(udid):
     from pymobiledevice3.lockdown import create_using_usbmux
     return await asyncio.wait_for(create_using_usbmux(serial=udid, autopair=False, connection_type=CONNECTION), 15)
 
+async def carrier_rows(device):
+    from pymobiledevice3.exceptions import MissingValueError
+    try:
+        return await device.get_value(key='CarrierBundleInfoArray') or []
+    except MissingValueError:
+        # Wi-Fi iPads do not expose this cellular-only lockdown key.
+        return []
+
+
 async def device_info(device):
     result = {k: await device.get_value(key=k) for k in
-              ('ProductType', 'HardwareModel', 'ProductVersion', 'BuildVersion', 'ActivationState')}
-    rows = await device.get_value(key='CarrierBundleInfoArray') or []
+              ('ProductType', 'HardwareModel', 'ProductVersion', 'BuildVersion', 'ActivationState',
+               'DeviceClass', 'TelephonyCapability')}
+    rows = await carrier_rows(device)
     result['carriers'] = [{k: r[k] for k in ('MCC', 'MNC', 'Slot', 'CFBundleIdentifier', 'CFBundleVersion') if k in r}
                           for r in rows]
     return result
+
+
+def configure_device(info):
+    # One paired device per process. Select both paths before constructing archives or binding backups.
+    global DEVICE_FAMILY, TARGET, SYSTEM_BUNDLE_DIR, SYSTEM_PREFIX
+    DEVICE_FAMILY = 'iPad' if info.get('DeviceClass') == 'iPad' or str(info.get('ProductType', '')).startswith('iPad') else 'iPhone'
+    TARGET = PARENT + '/' + DEVICE_FAMILY
+    SYSTEM_BUNDLE_DIR = 'System/Library/Carrier Bundles/' + DEVICE_FAMILY
+    SYSTEM_PREFIX = '../../../../../../' + SYSTEM_BUNDLE_DIR + '/'
+
+
+def no_cellular_sim(info, rows):
+    if DEVICE_FAMILY != 'iPad' or rows:
+        return None
+    if info.get('TelephonyCapability') is False:
+        return 'Это iPad Wi-Fi без сотового модема. Установка профилей операторов недоступна.'
+    return 'iPad не сообщил активную SIM или eSIM. Включите сотовую линию и повторите проверку.'
+
 
 def check_trigger(path, sims, targets=(BUNDLE,)):
     require(path.suffix == '.ipcc', 'Trigger must be an IPCC')
@@ -764,7 +795,7 @@ import uuid
 from datetime import datetime
 
 APPLE_DIRS = []
-ASSET_SHA256 = '6de1ea0be81a29c145ef414f24bc21d1dcb8a4eb737b22b1f956e9a6f0c2098b'
+ASSET_SHA256 = '3b47408c5d2deb941d8b94c64724f5b72357dc39911ec9e77b7e4b3ccfb8659f'
 
 
 def error_text(error):
@@ -958,8 +989,7 @@ async def host_session(udid, assets, callback, run):
         config.unlink(missing_ok=True)
 
 TARGET_BUNDLES = ('Vodafone_hu.bundle',)
-SYSTEM_PREFIX = '../../../../../../System/Library/Carrier Bundles/iPhone/'
-MODELS = {'iPhone13,2': {'name': 'iPhone 12', 'boards': ['D53GAP']}, 'iPhone13,1': {'name': 'iPhone 12 mini', 'boards': ['D52GAP']}, 'iPhone13,3': {'name': 'iPhone 12 Pro', 'boards': ['D53PAP']}, 'iPhone13,4': {'name': 'iPhone 12 Pro Max', 'boards': ['D54PAP']}, 'iPhone14,5': {'name': 'iPhone 13', 'boards': ['D17AP']}, 'iPhone14,4': {'name': 'iPhone 13 mini', 'boards': ['D16AP']}, 'iPhone14,2': {'name': 'iPhone 13 Pro', 'boards': ['D63AP']}, 'iPhone14,3': {'name': 'iPhone 13 Pro Max', 'boards': ['D64AP']}, 'iPhone14,7': {'name': 'iPhone 14', 'boards': ['D27AP']}, 'iPhone14,8': {'name': 'iPhone 14 Plus', 'boards': ['D28AP']}, 'iPhone15,2': {'name': 'iPhone 14 Pro', 'boards': ['D73AP']}, 'iPhone15,3': {'name': 'iPhone 14 Pro Max', 'boards': ['D74AP']}, 'iPhone15,4': {'name': 'iPhone 15', 'boards': ['D37AP']}, 'iPhone15,5': {'name': 'iPhone 15 Plus', 'boards': ['D38AP']}, 'iPhone16,1': {'name': 'iPhone 15 Pro', 'boards': ['D83AP']}, 'iPhone16,2': {'name': 'iPhone 15 Pro Max', 'boards': ['D84AP']}, 'iPhone17,4': {'name': 'iPhone 16 Plus', 'boards': ['D48AP']}, 'iPhone17,2': {'name': 'iPhone 16 Pro Max', 'boards': ['D94AP']}, 'iPhone17,3': {'name': 'iPhone 16', 'boards': ['D47AP']}, 'iPhone17,1': {'name': 'iPhone 16 Pro', 'boards': ['D93AP']}, 'iPhone17,5': {'name': 'iPhone 16e', 'boards': ['V59AP']}, 'iPhone18,1': {'name': 'iPhone 17 Pro', 'boards': ['V53AP']}, 'iPhone18,2': {'name': 'iPhone 17 Pro Max', 'boards': ['V54AP']}, 'iPhone18,4': {'name': 'iPhone Air', 'boards': ['D23AP']}, 'iPhone18,3': {'name': 'iPhone 17', 'boards': ['V57AP']}, 'iPhone18,5': {'name': 'iPhone 17e', 'boards': ['V159AP']}, 'iPhone19,7': {'name': 'iPhone 18 Pro Max', 'boards': ['V64SAP']}, 'iPhone19,3': {'name': 'iPhone 18 Pro Max (U.S.)', 'boards': ['V64AP']}, 'iPhone19,2': {'name': 'iPhone 18 Pro', 'boards': ['V63AP']}}
+SYSTEM_PREFIX = '../../../../../../' + SYSTEM_BUNDLE_DIR + '/'
 
 
 def load_assets():
@@ -1921,8 +1951,9 @@ async def run_report(device, args, rows):
 async def diagnostics(args):
     device=await ready_device(args.udid,args.wait_seconds)
     try:
-        info=await device_info(device); DIAG['info']=info
-        rows=await device.get_value(key='CarrierBundleInfoArray') or []
+        info=await device_info(device); DIAG['info']=info; configure_device(info)
+        rows=await carrier_rows(device)
+        require(not no_cellular_sim(info, rows), no_cellular_sim(info, rows))
         print(f"\n  {MODELS.get(info['ProductType'], {}).get('name', info['ProductType'])} · iOS {info['ProductVersion']} ({info['BuildVersion']})",flush=True)
         for r in rows:
             if r.get('Slot') in SLOT_NAMES: print('  '+sim_header(r),flush=True)
@@ -1936,10 +1967,18 @@ async def execute(args,assets):
     device=await ready_device(udid,args.wait_seconds)
     run=None
     try:
-        info=await device_info(device); DIAG['info']=info
+        info=await device_info(device); DIAG['info']=info; configure_device(info)
         require(info['ActivationState']=='Activated','iPhone не активирован.')
-        rows=await device.get_value(key='CarrierBundleInfoArray') or []
+        rows=await carrier_rows(device)
         top=await device.get_value() or {}
+        unavailable = no_cellular_sim({**info, **top}, rows)
+        if unavailable and not args.recover:
+            output_section('УСТРОЙСТВО')
+            print(f"  {MODELS.get(info['ProductType'], {}).get('name', info['ProductType'])} · iPadOS {info['ProductVersion']} ({info['BuildVersion']})", flush=True)
+            if args.status:
+                print('\n  '+unavailable, flush=True)
+                return NOTHING_TO_WRITE if os.environ.get('CARRIERSIM_PLAN') else 0
+            raise RuntimeError(unavailable)
         slots=SLOT_CHOICES[args.sims]
         # A slot picked by number is the user's explicit choice; "all" leaves foreign SIMs alone.
         any_mcc=args.sims!='all'; skipped=[]
@@ -1963,7 +2002,7 @@ async def execute(args,assets):
                            'в bundle.yaml или выберите эту SIM в пункте 7)')
         print(flush=True)
         bundles=sorted({s['bundle'] for s in sims if s['bundle']})
-        if bundles:
+        if bundles and DEVICE_FAMILY == 'iPhone':
             # Blocking I/O off the event loop; cached per process, so retries do not wait again.
             catalog=await asyncio.to_thread(load_catalog,args.runs)
             if catalog: output_section('СВЕДЕНИЯ О ПРОФИЛЯХ')
@@ -2008,7 +2047,8 @@ async def execute(args,assets):
         plmns={str(r.get('MCC',''))+str(r.get('MNC','')) for r in rows}
         # Prefer a trigger with signed overrides for this board; otherwise the first one that fits the SIMs.
         fitting=[]
-        for name in (() if args.trigger or assets is None else ('AVEA_tr.ipcc','Swisscom_ch.ipcc','O2_Germany.ipcc')):
+        names = ('AVEA_tr_iPad.ipcc',) if DEVICE_FAMILY == 'iPad' else ('AVEA_tr.ipcc','Swisscom_ch.ipcc','O2_Germany.ipcc')
+        for name in (() if args.trigger or assets is None else names):
             candidate=run/name;candidate.write_bytes(assets['triggers/'+name][1])
             try:
                 check_trigger(candidate,plmns,{s['bundle'] for s in sims if s['bundle']})
@@ -2042,7 +2082,7 @@ async def execute(args,assets):
             print('\n  [2/4] Сохраняю текущие настройки…',flush=True)
             original=await transfer(device,run/'snapshot')
             if restore_imsis is not None:
-                now={s['imsi'] for s in select_sims(await device.get_value(key='CarrierBundleInfoArray') or [],None,slots)}
+                now={s['imsi'] for s in select_sims(await carrier_rows(device),None,slots)}
                 require(now==restore_imsis,'SIM изменились во время операции; запись отменена.')
             desired=remove_imsi_links(original,restore_imsis)
             removed=len(original)-len(desired)
@@ -2069,7 +2109,7 @@ async def execute(args,assets):
             print('\n  [2/4] Сохраняю исходные настройки…',flush=True)
             original=await transfer(device,run/'snapshot')
             require(original is not None,'Не удалось сохранить исходный каталог.')
-            current=select_sims(await device.get_value(key='CarrierBundleInfoArray') or [],args.bundles,slots,any_mcc)
+            current=select_sims(await carrier_rows(device),args.bundles,slots,any_mcc)
             require(current==sims,'SIM изменились во время операции; запись отменена.')
             desired=make_plan(original,sims)
             save_json(run/'plan.json',{'slots':[{k:v for k,v in s.items() if k!='imsi'} for s in sims],
@@ -2130,7 +2170,7 @@ async def execute(args,assets):
                    'пункт 2 (--status): в строке «сейчас» должен быть профиль оператора.'),flush=True)
             return UNCONFIRMED
         print('\n  Books: служебные файлы синхронизации возвращены в исходное состояние'+books_summary(run)+'.',flush=True)
-        print('\n  Готово. Для полноценной работы профиля рекомендуется перезагрузить телефон.\n'
+        print('\n  Готово. Для полноценной работы профиля рекомендуется перезагрузить устройство.\n'
               '  После перезагрузки проверьте связь, звонки и интернет.',flush=True)
         return 0
     except BaseException as error:
@@ -2391,7 +2431,7 @@ def print_diagnostics(error):
     except Exception as e: rows.append(('Окружение', f'не собрано: {error_text(e)}'))
     info = DIAG.get('info')
     if info:
-        rows.append(('iPhone', f"{MODELS.get(info['ProductType'], {}).get('name', '?')} · {info['ProductType']} · "
+        rows.append(('iPad' if str(info['ProductType']).startswith('iPad') else 'iPhone', f"{MODELS.get(info['ProductType'], {}).get('name', '?')} · {info['ProductType']} · "
                      f"{info['HardwareModel']} · iOS {info['ProductVersion']} ({info['BuildVersion']}) · {info['ActivationState']}"))
         for c in info.get('carriers', []):
             rows.append(('  SIM', f"{c.get('Slot')} {c.get('MCC','')}{c.get('MNC','')} {c.get('CFBundleIdentifier','')} {c.get('CFBundleVersion','')}"))
@@ -2527,7 +2567,7 @@ def main():
                            'Что сделать: закройте это окно, скопируйте всю папку CarrierSIM '
                            'в «Загрузки» и запустите оттуда.') from None
     with contextlib.suppress(OSError):start_session_log(args.runs)
-    print('Разблокируйте iPhone и подтвердите доверие компьютеру. Закройте синхронизацию Finder/iTunes.',flush=True)
+    print('Разблокируйте iPhone или iPad и подтвердите доверие компьютеру. Закройте синхронизацию Finder/iTunes.',flush=True)
     with operation_lock(args.runs):return asyncio.run(execute_with_retry(args,assets)) or 0
 
 
