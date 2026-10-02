@@ -1087,13 +1087,14 @@ def passport_lines(name, catalog):
     imessage = ('международный номер' if re.fullmatch(r'(?:\+|00|011)\d{7,}', reg) else
                 f'местный номер {reg} другой страны: из российской сети недоступен, повторная активация '
                 'по номеру может не пройти' if reg else 'номер не задан')
-    lines = [f"  {name} ({r.get('country') or '?'}) — по файлу пакета, {where}, не проверка на телефоне:",
+    lines = [f"  {name} · {r.get('country') or '?'}",
+             f"    Данные из файла пакета: {where}; не проверка на телефоне.",
              f"    VoWiFi: приоритет дома — {pref(r.get('ih'))}, в роуминге — {yn(r.get('wroam'))}"
              + (f", подпись «{r['wn']}»" if r.get('wn') else ''),
              f"    iMessage/FaceTime: {imessage}",
-             f"    значок {r.get('lte') or 'LTE'} · переключатель VoLTE {'нет' if r.get('vs') is False else 'есть'}"
-             f" · 5G {'скрыт' if r.get('sw5g') is False else 'есть'} · EVS {'есть' if r.get('evs') else 'нет'}"
-             f" · доп. услуги по IMS (XCAP) {yn(r.get('xcap'))}"]
+             f"    Значок: {r.get('lte') or 'LTE'} · переключатель VoLTE: {'нет' if r.get('vs') is False else 'есть'}",
+             f"    5G: {'скрыт' if r.get('sw5g') is False else 'есть'} · EVS: {'есть' if r.get('evs') else 'нет'}"
+             f" · доп. услуги по IMS (XCAP): {yn(r.get('xcap'))}"]
     if r.get('vvm') and r.get('vvm') != 'none':
         lines.append(f"    визуальная голосовая почта: служебные SMS уходят на номер {r.get('beacon') or 'чужого оператора'}")
     return lines
@@ -1129,6 +1130,18 @@ def sim_line(row, top):
     current = str(row.get('CFBundleIdentifier', '')).removeprefix('com.apple.') or 'неизвестно'
     return '  ·  '.join((SLOT_NAMES.get(slot, str(slot)), operator, kind,
                          f'ICCID …{iccid[-4:]}' if len(iccid) >= 4 else 'ICCID недоступен', phone, 'сейчас: ' + current))
+
+
+def output_section(title):
+    print('\n  ' + title, flush=True)
+    print('  ' + '─' * 50, flush=True)
+
+
+def print_sim_plan(row, top, target):
+    parts = sim_line(row, top).split('  ·  ')
+    print('\n  ' + ' · '.join(parts[:3]), flush=True)
+    print('    ' + ' · '.join(parts[3:5]), flush=True)
+    print(f'    {parts[5]}  →  план: {target}', flush=True)
 
 
 def select_sims(rows, config=None, slots=SLOT_CHOICES['all'], any_mcc=True, skipped=None, only_skipped_ok=False):
@@ -1306,7 +1319,7 @@ async def execute_with_retry(args,assets):
     if CONNECTION=='Network' and not args.status and not args.recover and not pending(args.runs,args.udid):
         await require_local_network(args.udid)
     for attempt in range(1,args.attempts+1):
-        print(f'Попытка {attempt} из {args.attempts}',flush=True)
+        print(f'\n  Попытка {attempt} из {args.attempts}',flush=True)
         before=set(pending(args.runs,args.udid))
         try:return await execute(args,assets)
         except Exception as error:
@@ -1958,21 +1971,24 @@ async def execute(args,assets):
             if args.sims!='all':
                 # Only this SIM's alias is removed, so its IMSI must be known.
                 restore_imsis={s['imsi'] for s in select_sims(rows,None,slots)}
-        print(f"\n  {MODELS.get(info['ProductType'], {}).get('name', info['ProductType'])} · iOS {info['ProductVersion']} ({info['BuildVersion']})",flush=True)
+        output_section('УСТРОЙСТВО И ПЛАН')
+        print(f"  {MODELS.get(info['ProductType'], {}).get('name', info['ProductType'])} · iOS {info['ProductVersion']} ({info['BuildVersion']})",flush=True)
         row_by_slot={r.get('Slot'):r for r in rows}
         for s in sims:
             target='штатный профиль' if args.restore else s['bundle'].removesuffix('.bundle')+' (по IMSI)'
-            print(f"  {sim_line(row_by_slot[s['slot']],top)}  →  план: {target}",flush=True)
+            print_sim_plan(row_by_slot[s['slot']], top, target)
         for slot in skipped:
-            print(f"  {sim_line(row_by_slot[slot],top)}  →  план: не трогаю (зарубежная SIM: добавьте её MCCMNC "
-                  "в bundle.yaml или выберите эту SIM в пункте 7)",flush=True)
+            print_sim_plan(row_by_slot[slot], top, 'не трогаю (зарубежная SIM: добавьте её MCCMNC '
+                           'в bundle.yaml или выберите эту SIM в пункте 7)')
         print(flush=True)
         bundles=sorted({s['bundle'] for s in sims if s['bundle']})
         if bundles:
             # Blocking I/O off the event loop; cached per process, so retries do not wait again.
             catalog=await asyncio.to_thread(load_catalog,args.runs)
+            if catalog: output_section('СВЕДЕНИЯ О ПРОФИЛЯХ')
             for name in bundles:
                 error=catalog_name_error(name,catalog);require(not error,error)
+                if catalog: print(flush=True)
                 for line in passport_lines(name,catalog): print(line,flush=True)
             if catalog: print(flush=True)
         if args.status:
@@ -2003,8 +2019,9 @@ async def execute(args,assets):
                 ', затем повторите действие. Этап: '+str(unresolved[0] if unresolved else ''))
         run=args.runs/(datetime.now().strftime('%Y%m%d-%H%M%S-')+uuid.uuid4().hex[:6])
         run.mkdir(mode=0o700); DIAG['run']=run; save_environment(run)
-        print('Копии и журнал:',run,flush=True)
-        print('Идёт установка или восстановление, ожидайте… Не отключайте iPhone.',flush=True)
+        output_section('ВЫПОЛНЕНИЕ')
+        print('  Копии и журнал:\n    '+str(run),flush=True)
+        print('\n  Не отключайте iPhone до завершения операции.',flush=True)
         save_json(run/'device.json',{**info,'udid_hash':digest(udid.encode())})
         trigger=None
         plmns={str(r.get('MCC',''))+str(r.get('MNC','')) for r in rows}
@@ -2033,15 +2050,15 @@ async def execute(args,assets):
             cleaned=await clean_phone(device,run)
             kept=[n for n,v in cleaned.items() if str(v).startswith('не удалён')]
             removed=[n for n in cleaned if n not in kept]
-            if removed:print('Убраны остатки прошлых запусков: '+', '.join(removed),flush=True)
-            if kept:print('Не удалось убрать остатки прошлых запусков: '+', '.join(kept),flush=True)
+            if removed:print('\n  Убраны остатки прошлых запусков:\n    '+'\n    '.join(removed),flush=True)
+            if kept:print('\n  Не удалось убрать остатки прошлых запусков:\n    '+'\n    '.join(kept),flush=True)
         if recover:
             if isinstance(recover,list):await recover_all(device,recover,run)
             else:await recover_stage(device,recover.resolve(),run)
         elif args.restore:
-            print('[1/4] Подготавливаю пересканирование…',flush=True)
+            print('\n  [1/4] Подготавливаю пересканирование…',flush=True)
             init=run/'initialize';init.mkdir();await install_trigger(device,trigger,init)
-            print('[2/4] Сохраняю текущие настройки…',flush=True)
+            print('\n  [2/4] Сохраняю текущие настройки…',flush=True)
             original=await transfer(device,run/'snapshot')
             if restore_imsis is not None:
                 now={s['imsi'] for s in select_sims(await device.get_value(key='CarrierBundleInfoArray') or [],None,slots)}
@@ -2051,9 +2068,9 @@ async def execute(args,assets):
             save_json(run/'plan.json',{'action':'remove-imsi','sims':args.sims,'removed':removed,
                                       'before':tree_hash(original),'after':tree_hash(desired)})
             if not removed:
-                print('[3/4] Ссылок по IMSI для выбранных SIM нет: они уже на штатном профиле. Ничего не меняю.',flush=True)
+                print('\n  [3/4] Ссылок по IMSI для выбранных SIM нет: они уже на штатном профиле. Ничего не меняю.',flush=True)
                 return 0
-            print(f'[3/4] Удаляю ссылки по IMSI: {removed}. Проверяю результат…',flush=True)
+            print(f'\n  [3/4] Удаляю ссылки по IMSI: {removed}. Проверяю результат…',flush=True)
             await transfer(device,run/'restore',payload=desired,expected=original)
             require(await transfer(device,run/'readback')==desired,'Обратное чтение не совпало.')
         elif args.restore_backup:
@@ -2066,9 +2083,9 @@ async def execute(args,assets):
         else:
             # A non-overlapping trigger also creates the user catalog on a clean phone.
             init=run/'initialize';init.mkdir()
-            print('[1/4] Подготавливаю пересканирование…',flush=True)
+            print('\n  [1/4] Подготавливаю пересканирование…',flush=True)
             await install_trigger(device,trigger,init)
-            print('[2/4] Сохраняю исходные настройки…',flush=True)
+            print('\n  [2/4] Сохраняю исходные настройки…',flush=True)
             original=await transfer(device,run/'snapshot')
             require(original is not None,'Не удалось сохранить исходный каталог.')
             current=select_sims(await device.get_value(key='CarrierBundleInfoArray') or [],args.bundles,slots,any_mcc)
@@ -2076,22 +2093,23 @@ async def execute(args,assets):
             desired=make_plan(original,sims)
             save_json(run/'plan.json',{'slots':[{k:v for k,v in s.items() if k!='imsi'} for s in sims],
                                       'before':tree_hash(original),'after':tree_hash(desired)})
-            print('[3/4] Записываю ссылки по IMSI и проверяю результат…',flush=True)
+            print('\n  [3/4] Записываю ссылки по IMSI и проверяю результат…',flush=True)
             await transfer(device,run/'apply',payload=desired,expected=original)
             require(await transfer(device,run/'readback')==desired,'Обратное чтение не совпало.')
         if trigger is None:
             print('Каталог восстановлен. Пересканирование пропущено: нет подходящего триггера '
                   'или assets.zip недоступен. Если связь не вернулась, перезагрузите iPhone.',flush=True)
             return 0
-        print('[4/4] Ожидаю применения профиля и проверки подписей…',flush=True)
+        print('\n  [4/4] Ожидаю применения профиля и проверки подписей…',flush=True)
         rescan=run/'rescan';rescan.mkdir()
         installation=await install_trigger(device,trigger,rescan)
         result=report_log(rescan/'commcenter.log',sims)
         save_json(run/'result.json',{'catalog_verified':True,'installation':installation,'slots':result})
+        output_section('РЕЗУЛЬТАТ')
         unconfirmed=False
         for s in result:
             ok=s['verified'] and (args.restore or (s['selected'] or '').lower()==s['expected'].lower());unconfirmed |= not ok
-            print(f"{SLOT_NAMES[s['slot']]} ({s['plmn']}): "+slot_outcome(s,ok),flush=True)
+            print(f"  {SLOT_NAMES[s['slot']]} ({s['plmn']}): "+slot_outcome(s,ok),flush=True)
         if args.restore:
             print(('Ссылка по IMSI выбранной SIM удалена, другая SIM не тронута.' if restore_imsis else
                    'Все ссылки по IMSI удалены.')+' Обычные ссылки операторов сохранены.',flush=True)
@@ -2130,8 +2148,9 @@ async def execute(args,assets):
                   ('Журнал не подтвердил выбор штатного профиля. Включите авиарежим на 15 секунд и откройте '
                    'пункт 2 (--status): в строке «сейчас» должен быть профиль оператора.'),flush=True)
             return UNCONFIRMED
-        print('Books: служебные файлы синхронизации возвращены в исходное состояние'+books_summary(run)+'.',flush=True)
-        print('Готово. Включите авиарежим на 15 секунд и проверьте связь. Работа 5G не проверялась.')
+        print('\n  Books: служебные файлы синхронизации возвращены в исходное состояние'+books_summary(run)+'.',flush=True)
+        print('\n  Готово. Для полноценной работы профиля рекомендуется перезагрузить телефон.\n'
+              '  После перезагрузки проверьте связь, звонки и интернет.',flush=True)
         return 0
     except BaseException as error:
         if run:
