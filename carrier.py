@@ -1118,7 +1118,7 @@ def passport_lines(name, catalog):
                 f'местный номер {reg} другой страны: из российской сети недоступен, повторная активация '
                 'по номеру может не пройти' if reg else 'номер не задан')
     lines = [f"  {name} · {r.get('country') or '?'}",
-             f"    Данные из файла пакета: {where}; не проверка на телефоне.",
+             "    Источник: https://ios-bundles.github.io/",
              f"    VoWiFi: приоритет дома — {pref(r.get('ih'))}, в роуминге — {yn(r.get('wroam'))}"
              + (f", подпись «{r['wn']}»" if r.get('wn') else ''),
              f"    iMessage/FaceTime: {imessage}",
@@ -2012,8 +2012,10 @@ async def execute(args,assets):
                 for line in passport_lines(name,catalog): print(line,flush=True)
             if catalog: print(flush=True)
         if args.status:
-            print('Сверьте последние 4 цифры ICCID: Настройки → Основные → Об этом устройстве → ICCID нужной линии. '
-                  '«сейчас» — профиль, загруженный iPhone; «план» — что будет записано.',flush=True)
+            print('  Сейчас — профиль, который использует устройство.\n'
+                  '  План — профиль для планируемой установки.\n\n'
+                  '  Чтобы определить нужную SIM, сверьте последние 4 символа ICCID:\n'
+                  '  Настройки → Основные → Об этом устройстве → ICCID.',flush=True)
             blocked=pending(args.runs,udid)
             if blocked:
                 # Menu 7 confirms after this plan: say now that the write will not start, not after "да".
