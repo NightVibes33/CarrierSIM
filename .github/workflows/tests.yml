@@ -3,7 +3,19 @@ name: Tests
 on:
   push:
     branches: ['**']
+    paths:
+      - '*.py'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/scripts/**'
+      - '.github/workflows/tests.yml'
   pull_request:
+    paths:
+      - '*.py'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/scripts/**'
+      - '.github/workflows/tests.yml'
   workflow_dispatch:
 
 permissions:
