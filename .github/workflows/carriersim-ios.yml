@@ -1,0 +1,70 @@
+name: Build CarrierSIM iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "ios-app/**"
+      - "scripts/build-ios-ipa.sh"
+      - "scripts/patch-airlift-for-carriersim.py"
+      - "project.yml"
+      - ".github/workflows/carriersim-ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: |
+          xcodebuild -version
+          xcode-select -p
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Cache AirLift runtime
+        uses: actions/cache@v4
+        with:
+          path: .airlift-cache
+          key: carriersim-airlift-${{ runner.os }}-${{ hashFiles('scripts/patch-airlift-for-carriersim.py') }}
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build unsigned IPA
+        run: |
+          chmod +x scripts/build-ios-ipa.sh
+          scripts/build-ios-ipa.sh
+
+      - name: Verify IPA
+        run: |
+          unzip -tq CarrierSIM-unsigned.ipa
+          rm -rf /tmp/carriersim-verify
+          mkdir -p /tmp/carriersim-verify
+          unzip -q CarrierSIM-unsigned.ipa -d /tmp/carriersim-verify
+          APP="$(find /tmp/carriersim-verify/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP"
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Info.plist")" = "com.nightvibes33.carriersim"
+          nm -gU "$APP/CarrierSIM" | grep -q "_al_carriersim_status"
+          nm -gU "$APP/CarrierSIM" | grep -q "_al_carriersim_apply"
+          nm -gU "$APP/CarrierSIM" | grep -q "_al_carriersim_restore"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: CarrierSIM-unsigned
+          path: |
+            CarrierSIM-unsigned.ipa
+            CarrierSIM-SHA256.txt
+          if-no-files-found: error
