@@ -105,7 +105,6 @@ final class CarrierSIMViewModel: ObservableObject {
             return
         }
 
-        saveOriginalBundleIfNeeded(sim)
         isBusy = true
         statusText = "Applying \(bundle) to \(sim.title)…"
         logs.removeAll(keepingCapacity: true)
@@ -123,34 +122,19 @@ final class CarrierSIMViewModel: ObservableObject {
 
     func restore(_ sim: CarrierSIMLine?) async {
         guard !isBusy else { return }
-        let targets = sim.map { [$0] } ?? sims
-        guard !targets.isEmpty else {
-            statusText = "No SIMs are loaded."
-            return
-        }
-
         isBusy = true
-        statusText = sim == nil ? "Restoring original carrier selections…" : "Restoring \(sim!.title)…"
+        statusText = sim == nil ? "Removing CarrierSIM IMSI aliases…" : "Restoring \(sim!.title)…"
         logs.removeAll(keepingCapacity: true)
         defer { isBusy = false }
 
-        for target in targets {
-            guard let original = originalBundle(for: target) else {
-                statusText = "No pre-change carrier bundle backup exists for \(target.title)."
-                continue
-            }
-            switch await runApply(imsi: target.imsi, bundle: original) {
-            case .success(let json):
-                lastResult = json
-                clearOriginalBundle(for: target)
-            case .failure(let error):
-                statusText = error.message
-                return
-            }
+        switch await runRestore(imsi: sim?.imsi ?? "") {
+        case .success(let json):
+            lastResult = json
+            statusText = "CarrierSIM IMSI alias restored. Reboot the iPhone to reload CommCenter."
+            await scanSIMsAfterOperation()
+        case .failure(let error):
+            statusText = error.message
         }
-
-        statusText = "Original carrier selection restored. Reboot the iPhone to reload CommCenter."
-        await scanSIMsAfterOperation()
     }
 
     func reboot() async {
@@ -192,34 +176,6 @@ final class CarrierSIMViewModel: ObservableObject {
             if sim.mcc == "250" || sim.mcc == "257" { return "Vodafone_hu" }
             return "Vodafone_hu"
         }
-    }
-
-    private func backupKey(for sim: CarrierSIMLine) -> String {
-        "carriersim.original.\(sim.imsi)"
-    }
-
-    private func normalizedBundleName(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let noPrefix = trimmed.hasPrefix("com.apple.") ? String(trimmed.dropFirst("com.apple.".count)) : trimmed
-        return noPrefix.hasSuffix(".bundle") ? String(noPrefix.dropLast(".bundle".count)) : noPrefix
-    }
-
-    private func saveOriginalBundleIfNeeded(_ sim: CarrierSIMLine) {
-        let key = backupKey(for: sim)
-        guard UserDefaults.standard.string(forKey: key) == nil,
-              let original = normalizedBundleName(sim.currentBundle),
-              !original.isEmpty
-        else { return }
-        UserDefaults.standard.set(original, forKey: key)
-    }
-
-    private func originalBundle(for sim: CarrierSIMLine) -> String? {
-        UserDefaults.standard.string(forKey: backupKey(for: sim))
-    }
-
-    private func clearOriginalBundle(for sim: CarrierSIMLine) {
-        UserDefaults.standard.removeObject(forKey: backupKey(for: sim))
     }
 
     private func scanSIMsAfterOperation() async {
@@ -305,6 +261,35 @@ final class CarrierSIMViewModel: ObservableObject {
                 } else {
                     let message = takeCString(errorPointer)
                     continuation.resume(returning: .failure(CarrierSIMError(message: message.isEmpty ? "Carrier update failed." : message)))
+                }
+            }
+        }
+    }
+
+    private func runRestore(imsi: String) async -> Result<String, CarrierSIMError> {
+        let path = PairingController.pairingFilePath()
+        return await withCheckedContinuation { continuation in
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            DispatchQueue.global(qos: .userInitiated).async {
+                var jsonPointer: UnsafeMutablePointer<CChar>?
+                var errorPointer: UnsafeMutablePointer<CChar>?
+                let rc = path.withCString { pathC in
+                    imsi.withCString { imsiC in
+                        al_carriersim_restore(
+                            pathC,
+                            imsiC,
+                            carrierSIMLogCallback,
+                            context,
+                            &jsonPointer,
+                            &errorPointer
+                        )
+                    }
+                }
+                if rc == 0 {
+                    continuation.resume(returning: .success(takeCString(jsonPointer)))
+                } else {
+                    let message = takeCString(errorPointer)
+                    continuation.resume(returning: .failure(CarrierSIMError(message: message.isEmpty ? "Restore failed." : message)))
                 }
             }
         }
