@@ -2,6 +2,10 @@ import Foundation
 import UIKit
 import AirliftFFI
 
+private struct CarrierSIMError: Error {
+    let message: String
+}
+
 struct CarrierSIMLine: Identifiable, Hashable {
     let slot: String
     let mcc: String
@@ -87,8 +91,8 @@ final class CarrierSIMViewModel: ObservableObject {
         case .success(let json):
             parseStatus(json)
             statusText = sims.isEmpty ? "No active SIM/eSIM with an IMSI was reported." : "Ready."
-        case .failure(let message):
-            statusText = message
+        case .failure(let error):
+            statusText = error.message
         }
     }
 
@@ -112,8 +116,8 @@ final class CarrierSIMViewModel: ObservableObject {
             lastResult = json
             statusText = "Carrier catalog updated. Reboot the iPhone to make CommCenter reload it."
             await scanSIMsAfterOperation()
-        case .failure(let message):
-            statusText = message
+        case .failure(let error):
+            statusText = error.message
         }
     }
 
@@ -156,7 +160,7 @@ final class CarrierSIMViewModel: ObservableObject {
         defer { isBusy = false }
 
         let path = PairingController.pairingFilePath()
-        let outcome: Result<Void, String> = await withCheckedContinuation { continuation in
+        let outcome: Result<Void, CarrierSIMError> = await withCheckedContinuation { continuation in
             let context = Unmanaged.passUnretained(self).toOpaque()
             DispatchQueue.global(qos: .userInitiated).async {
                 var errorPointer: UnsafeMutablePointer<CChar>?
@@ -167,7 +171,7 @@ final class CarrierSIMViewModel: ObservableObject {
                     continuation.resume(returning: .success(()))
                 } else {
                     let message = takeCString(errorPointer)
-                    continuation.resume(returning: .failure(message.isEmpty ? "Restart request failed." : message))
+                    continuation.resume(returning: .failure(CarrierSIMError(message: message.isEmpty ? "Restart request failed." : message)))
                 }
             }
         }
@@ -175,8 +179,8 @@ final class CarrierSIMViewModel: ObservableObject {
         switch outcome {
         case .success:
             statusText = "Restart request sent."
-        case .failure(let message):
-            statusText = message
+        case .failure(let error):
+            statusText = error.message
         }
     }
 
@@ -254,7 +258,7 @@ final class CarrierSIMViewModel: ObservableObject {
         }
     }
 
-    private func runStatus() async -> Result<String, String> {
+    private func runStatus() async -> Result<String, CarrierSIMError> {
         let path = PairingController.pairingFilePath()
         return await withCheckedContinuation { continuation in
             let context = Unmanaged.passUnretained(self).toOpaque()
@@ -268,13 +272,13 @@ final class CarrierSIMViewModel: ObservableObject {
                     continuation.resume(returning: .success(takeCString(jsonPointer)))
                 } else {
                     let message = takeCString(errorPointer)
-                    continuation.resume(returning: .failure(message.isEmpty ? "Unable to read SIM information." : message))
+                    continuation.resume(returning: .failure(CarrierSIMError(message: message.isEmpty ? "Unable to read SIM information." : message)))
                 }
             }
         }
     }
 
-    private func runApply(imsi: String, bundle: String) async -> Result<String, String> {
+    private func runApply(imsi: String, bundle: String) async -> Result<String, CarrierSIMError> {
         let path = PairingController.pairingFilePath()
         return await withCheckedContinuation { continuation in
             let context = Unmanaged.passUnretained(self).toOpaque()
@@ -300,7 +304,7 @@ final class CarrierSIMViewModel: ObservableObject {
                     continuation.resume(returning: .success(takeCString(jsonPointer)))
                 } else {
                     let message = takeCString(errorPointer)
-                    continuation.resume(returning: .failure(message.isEmpty ? "Carrier update failed." : message))
+                    continuation.resume(returning: .failure(CarrierSIMError(message: message.isEmpty ? "Carrier update failed." : message)))
                 }
             }
         }
