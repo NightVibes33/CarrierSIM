@@ -18,7 +18,7 @@ final class PairingController: ObservableObject {
     @Published var status = "Not paired"
     @Published var pin: String?
 
-    private static let altIRKKey = "carriersimPairingHostAltIRK"
+    nonisolated private static let altIRKKey = "carriersimPairingHostAltIRK"
     nonisolated private static var storedAltIRK: String {
         get { UserDefaults.standard.string(forKey: altIRKKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: altIRKKey) }
