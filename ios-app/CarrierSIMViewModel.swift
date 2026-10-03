@@ -143,8 +143,8 @@ final class CarrierSIMViewModel: ObservableObject {
             case .success(let json):
                 lastResult = json
                 clearOriginalBundle(for: target)
-            case .failure(let message):
-                statusText = message
+            case .failure(let error):
+                statusText = error.message
                 return
             }
         }
