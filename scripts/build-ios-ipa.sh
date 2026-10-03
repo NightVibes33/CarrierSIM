@@ -27,14 +27,20 @@ else
   python3 "$ROOT/scripts/patch-airlift-for-carriersim.py" "$SRC"
 
   export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
-  chmod +x "$SRC/build-ios.sh"
+  export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-18.0}"
+  source "$HOME/.cargo/env" 2>/dev/null || true
+  rustup target add aarch64-apple-ios 2>/dev/null || true
+
   (
-    cd "$SRC"
-    ./build-ios.sh
+    cd "$SRC/rust-core"
+    cargo build --release --target aarch64-apple-ios
   )
 
   rm -rf "$ROOT/AirliftFFI.xcframework"
-  ditto "$SRC/AirliftFFI.xcframework" "$ROOT/AirliftFFI.xcframework"
+  xcodebuild -create-xcframework \
+    -library "$SRC/rust-core/target/aarch64-apple-ios/release/libairlift_ffi.a" \
+    -headers "$SRC/rust-core/include" \
+    -output "$ROOT/AirliftFFI.xcframework"
 
   rm -rf "$CACHE"
   mkdir -p "$CACHE"
