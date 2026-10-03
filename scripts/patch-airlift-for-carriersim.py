@@ -613,6 +613,40 @@ async fn carrier_sim_import_tree(
     Ok(())
 }
 
+
+async fn carrier_sim_restore_exported_in_session(
+    afc: &mut AfcClient,
+    atc: &mut Box<dyn ReadWrite>,
+    source: &str,
+    exported: &str,
+    payload_identifier: &str,
+    destination: &str,
+    logger: &Logger,
+) -> Result<(), String> {
+    let payload = format!("{source}/payload");
+
+    if afc.get_file_info(&payload).await.is_ok() {
+        afc.remove_all(&payload)
+            .await
+            .map_err(|e| format!("Could not clear recovery staging payload: {e:?}"))?;
+    }
+
+    afc.rename(exported, &payload)
+        .await
+        .map_err(|e| format!("Could not move exported carrier backup into recovery staging: {e:?}"))?;
+
+    logger.log("carriersim: restoring exact exported carrier catalog");
+    carrier_sim_file_complete(atc, payload_identifier, destination).await?;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    if !carrier_sim_wait_for_path(afc, &payload, false).await {
+        return Err("Original carrier catalog recovery payload was not consumed".into());
+    }
+
+    logger.log("carriersim: original carrier catalog restored");
+    Ok(())
+}
+
 async fn carrier_sim_transaction(
     tunnel: &mut AppDeviceTunnel,
     afc: &mut AfcClient,
@@ -625,6 +659,7 @@ async fn carrier_sim_transaction(
     let source = format!("carriersim-src-{token}");
     let link = format!("carriersim-link-{token}");
     let exported = format!("carriersim-saved-{token}");
+    let destination = format!("{link}/iPhone");
 
     let initial = carrier_sim_initial_archive()
         .map_err(|e| format!("CarrierSIM staging archive failed: {e}"))?;
@@ -633,6 +668,8 @@ async fn carrier_sim_transaction(
     if afc.get_file_info(&format!("{source}/p0/p1/p2/link")).await.is_err()
         || afc.get_file_info(&format!("{source}/payload")).await.is_err()
     {
+        let _ = afc.remove(&link).await;
+        let _ = afc.remove_all(&source).await;
         return Err("CarrierSIM staging verification failed".into());
     }
 
@@ -657,77 +694,173 @@ async fn carrier_sim_transaction(
         return Err("iOS did not export the current carrier catalog; no replacement was attempted".into());
     }
 
-    let original = carrier_sim_read_tree(afc, &exported).await?;
+    let original = match carrier_sim_read_tree(afc, &exported).await {
+        Ok(tree) => tree,
+        Err(read_error) => {
+            let recovery = carrier_sim_restore_exported_in_session(
+                afc,
+                &mut atc,
+                &source,
+                &exported,
+                &identifiers[2],
+                &destination,
+                logger,
+            )
+            .await;
+            drop(atc);
+            if recovery.is_ok() {
+                let _ = afc.remove(&link).await;
+                let _ = afc.remove_all(&source).await;
+            }
+            return Err(match recovery {
+                Ok(()) => format!(
+                    "Could not read the exported carrier catalog ({read_error}); original catalog restored"
+                ),
+                Err(recovery_error) => format!(
+                    "Could not read the exported carrier catalog ({read_error}); exact backup remains at Media/{exported}; recovery failed: {recovery_error}"
+                ),
+            });
+        }
+    };
+
     logger.log(format!(
         "carriersim: backed up {} carrier catalog nodes in Media/{exported}",
         original.len()
     ));
 
-    let mut desired = original.clone();
-    let action: String;
+    let desired_result: Result<(std::collections::BTreeMap<String, CarrierSIMNode>, String), String> =
+        (|| {
+            let mut desired = original.clone();
 
-    if restore_all {
-        let before = desired.len();
-        desired.retain(|name, node| {
-            !(carrier_sim_is_imsi(name) && matches!(node, CarrierSIMNode::Symlink(_)))
-        });
-        action = format!("removed {} IMSI aliases", before.saturating_sub(desired.len()));
-    } else if let Some(bundle) = bundle {
-        if !carrier_sim_is_imsi(imsi) {
-            return Err("IMSI must contain exactly 15 digits".into());
-        }
-        if let Some(existing) = desired.get(imsi) {
-            if !matches!(existing, CarrierSIMNode::Symlink(_)) {
-                return Err("The IMSI path exists but is not a symlink; refusing to replace it".into());
+            let action = if restore_all {
+                let before = desired.len();
+                desired.retain(|name, node| {
+                    !(carrier_sim_is_imsi(name) && matches!(node, CarrierSIMNode::Symlink(_)))
+                });
+                format!(
+                    "removed {} IMSI aliases",
+                    before.saturating_sub(desired.len())
+                )
+            } else if let Some(bundle) = bundle {
+                if !carrier_sim_is_imsi(imsi) {
+                    return Err("IMSI must contain exactly 15 digits".into());
+                }
+                if let Some(existing) = desired.get(imsi) {
+                    if !matches!(existing, CarrierSIMNode::Symlink(_)) {
+                        return Err(
+                            "The IMSI path exists but is not a symlink; refusing to replace it"
+                                .into(),
+                        );
+                    }
+                }
+
+                let bundle = carrier_sim_bundle(bundle)?;
+                let target = format!(
+                    "../../../../../../System/Library/Carrier Bundles/iPhone/{bundle}.bundle"
+                );
+                desired.insert(imsi.to_string(), CarrierSIMNode::Symlink(target));
+                format!("{imsi} -> {bundle}")
+            } else {
+                if !carrier_sim_is_imsi(imsi) {
+                    return Err("IMSI must contain exactly 15 digits".into());
+                }
+                let removed =
+                    matches!(desired.remove(imsi), Some(CarrierSIMNode::Symlink(_)));
+                if removed {
+                    format!("removed IMSI alias {imsi}")
+                } else {
+                    format!("IMSI alias {imsi} was already absent")
+                }
+            };
+
+            Ok((desired, action))
+        })();
+
+    let (desired, action) = match desired_result {
+        Ok(value) => value,
+        Err(validation_error) => {
+            let recovery = carrier_sim_restore_exported_in_session(
+                afc,
+                &mut atc,
+                &source,
+                &exported,
+                &identifiers[2],
+                &destination,
+                logger,
+            )
+            .await;
+            drop(atc);
+            if recovery.is_ok() {
+                let _ = afc.remove(&link).await;
+                let _ = afc.remove_all(&source).await;
             }
+            return Err(match recovery {
+                Ok(()) => format!("{validation_error}; original carrier catalog restored"),
+                Err(recovery_error) => format!(
+                    "{validation_error}; exact backup remains at Media/{exported}; recovery failed: {recovery_error}"
+                ),
+            });
         }
-
-        let bundle = carrier_sim_bundle(bundle)?;
-        let target = format!(
-            "../../../../../../System/Library/Carrier Bundles/iPhone/{bundle}.bundle"
-        );
-        desired.insert(imsi.to_string(), CarrierSIMNode::Symlink(target));
-        action = format!("{imsi} -> {bundle}");
-    } else {
-        if !carrier_sim_is_imsi(imsi) {
-            return Err("IMSI must contain exactly 15 digits".into());
-        }
-        let removed = matches!(desired.remove(imsi), Some(CarrierSIMNode::Symlink(_)));
-        action = if removed {
-            format!("removed IMSI alias {imsi}")
-        } else {
-            format!("IMSI alias {imsi} was already absent")
-        };
-    }
+    };
 
     let payload = match carrier_sim_payload_archive(&desired) {
         Ok(value) => value,
-        Err(error) => {
+        Err(build_error) => {
+            let recovery = carrier_sim_restore_exported_in_session(
+                afc,
+                &mut atc,
+                &source,
+                &exported,
+                &identifiers[2],
+                &destination,
+                logger,
+            )
+            .await;
             drop(atc);
-            let recovery = carrier_sim_import_tree(tunnel, afc, &original, logger).await;
+            if recovery.is_ok() {
+                let _ = afc.remove(&link).await;
+                let _ = afc.remove_all(&source).await;
+            }
             return Err(match recovery {
-                Ok(()) => format!("CarrierSIM could not build the replacement tree ({error}); original catalog restored"),
+                Ok(()) => format!(
+                    "CarrierSIM could not build the replacement tree ({build_error}); original catalog restored"
+                ),
                 Err(recovery_error) => format!(
-                    "CarrierSIM could not build the replacement tree ({error}); backup remains at Media/{exported}; recovery also failed: {recovery_error}"
+                    "CarrierSIM could not build the replacement tree ({build_error}); exact backup remains at Media/{exported}; recovery failed: {recovery_error}"
                 ),
             });
         }
     };
 
     if let Err(stage_error) = carrier_sim_stage_archive(tunnel, &source, &payload, logger).await {
+        let recovery = carrier_sim_restore_exported_in_session(
+            afc,
+            &mut atc,
+            &source,
+            &exported,
+            &identifiers[2],
+            &destination,
+            logger,
+        )
+        .await;
         drop(atc);
-        let recovery = carrier_sim_import_tree(tunnel, afc, &original, logger).await;
+        if recovery.is_ok() {
+            let _ = afc.remove(&link).await;
+            let _ = afc.remove_all(&source).await;
+        }
         return Err(match recovery {
-            Ok(()) => format!("CarrierSIM staging failed ({stage_error}); original catalog restored"),
+            Ok(()) => format!(
+                "CarrierSIM staging failed ({stage_error}); original catalog restored"
+            ),
             Err(recovery_error) => format!(
-                "CarrierSIM staging failed ({stage_error}); backup remains at Media/{exported}; recovery also failed: {recovery_error}"
+                "CarrierSIM staging failed ({stage_error}); exact backup remains at Media/{exported}; recovery failed: {recovery_error}"
             ),
         });
     }
 
     logger.log(format!("carriersim: committing {action}"));
     let commit_result =
-        carrier_sim_file_complete(&mut atc, &identifiers[2], &format!("{link}/iPhone")).await;
+        carrier_sim_file_complete(&mut atc, &identifiers[2], &destination).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     drop(atc);
 
@@ -735,11 +868,17 @@ async fn carrier_sim_transaction(
         carrier_sim_wait_for_path(afc, &format!("{source}/payload"), false).await;
 
     if commit_result.is_err() || !consumed {
+        logger.log("carriersim: commit was not confirmed; rebuilding the original catalog");
         let recovery = carrier_sim_import_tree(tunnel, afc, &original, logger).await;
+        if recovery.is_ok() {
+            let _ = afc.remove(&link).await;
+            let _ = afc.remove_all(&source).await;
+            let _ = afc.remove_all(&exported).await;
+        }
         return Err(match recovery {
             Ok(()) => "CarrierSIM commit was not confirmed; original catalog restored".into(),
             Err(recovery_error) => format!(
-                "CarrierSIM commit was not confirmed and automatic recovery failed. Backup remains at Media/{exported}: {recovery_error}"
+                "CarrierSIM commit was not confirmed and automatic recovery failed. Exact backup remains at Media/{exported}: {recovery_error}"
             ),
         });
     }
@@ -766,6 +905,15 @@ async fn carrier_sim_operation(
     restore_all: bool,
     logger: &Logger,
 ) -> Result<String, String> {
+    if !restore_all {
+        if !carrier_sim_is_imsi(&imsi) {
+            return Err("IMSI must contain exactly 15 digits".into());
+        }
+        if let Some(ref requested_bundle) = bundle {
+            let _ = carrier_sim_bundle(requested_bundle)?;
+        }
+    }
+
     let pairing_bytes = std::fs::read(&pairing_path)
         .map_err(|e| format!("Failed to read pairing file at {pairing_path}: {e}"))?;
     let mut tunnel = connect_tunnel(&pairing_bytes, logger).await?;
