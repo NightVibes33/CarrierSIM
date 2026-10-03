@@ -54,7 +54,7 @@ Commit:     097a058c984ffc33ccb697b9dfe8058be3e86244
 scripts/patch-airlift-for-carriersim.py
 ```
 
-and builds `AirliftFFI.xcframework` for arm64 iPhone and arm64 simulator.
+and builds the `AirliftFFI.xcframework` device slice required by the unsigned iPhone IPA.
 
 CarrierSIM adds three FFI operations:
 
@@ -130,7 +130,7 @@ To build on a Mac manually:
 
 ```bash
 brew install xcodegen
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+rustup target add aarch64-apple-ios
 chmod +x scripts/build-ios-ipa.sh
 scripts/build-ios-ipa.sh
 ```
