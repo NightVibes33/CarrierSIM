@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .airlift-cache
-          key: carriersim-airlift-${{ runner.os }}-${{ hashFiles('scripts/patch-airlift-for-carriersim.py', 'scripts/build-ios-ipa.sh') }}
+          key: carriersim-airlift-xcode27-${{ hashFiles('scripts/patch-airlift-for-carriersim.py', 'scripts/build-ios-ipa.sh') }}
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -60,6 +60,7 @@ jobs:
           APP="$(find /tmp/carriersim-verify/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
           test -n "$APP"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Info.plist")" = "com.nightvibes33.carriersim"
+          test ! -d "$APP/_CodeSignature"
           nm -gU "$APP/CarrierSIM" > /tmp/carriersim-symbols.txt
           grep -Fq "_al_carriersim_status" /tmp/carriersim-symbols.txt
           grep -Fq "_al_carriersim_apply" /tmp/carriersim-symbols.txt
