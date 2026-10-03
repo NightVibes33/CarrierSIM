@@ -60,9 +60,10 @@ jobs:
           APP="$(find /tmp/carriersim-verify/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
           test -n "$APP"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Info.plist")" = "com.nightvibes33.carriersim"
-          nm -gU "$APP/CarrierSIM" | grep -q "_al_carriersim_status"
-          nm -gU "$APP/CarrierSIM" | grep -q "_al_carriersim_apply"
-          nm -gU "$APP/CarrierSIM" | grep -q "_al_carriersim_restore"
+          nm -gU "$APP/CarrierSIM" > /tmp/carriersim-symbols.txt
+          grep -Fq "_al_carriersim_status" /tmp/carriersim-symbols.txt
+          grep -Fq "_al_carriersim_apply" /tmp/carriersim-symbols.txt
+          grep -Fq "_al_carriersim_restore" /tmp/carriersim-symbols.txt
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
