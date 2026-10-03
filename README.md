@@ -1,6 +1,6 @@
 # CarrierSIM
 
-[![Build CarrierSIM IPA](https://github.com/NightVibes33/CarrierSIM/actions/workflows/build-ios-ipa.yml/badge.svg?branch=main)](https://github.com/NightVibes33/CarrierSIM/actions/workflows/build-ios-ipa.yml)
+[![Build CarrierSIM IPA](https://github.com/NightVibes33/CarrierSIM/actions/workflows/carriersim-ios.yml/badge.svg?branch=main)](https://github.com/NightVibes33/CarrierSIM/actions/workflows/carriersim-ios.yml)
 
 CarrierSIM is an **on-device iPhone app** for experimenting with iOS carrier-bundle selection through the AirLift/AirTraffic path.
 
@@ -48,20 +48,20 @@ Repository: Mak5er/AirCard-iOS
 Commit:     097a058c984ffc33ccb697b9dfe8058be3e86244
 ```
 
-`build-ios.sh` fetches that exact revision, copies its `rust-core`, applies the CarrierSIM extension from:
+`scripts/build-ios-ipa.sh` fetches that exact revision and applies the CarrierSIM extension from:
 
 ```text
-airlift-patch/carriersim_exploit.rs
-scripts/patch-airlift.py
+scripts/patch-airlift-for-carriersim.py
 ```
 
 and builds `AirliftFFI.xcframework` for arm64 iPhone and arm64 simulator.
 
-CarrierSIM adds two FFI operations:
+CarrierSIM adds three FFI operations:
 
 ```text
 al_carriersim_status
 al_carriersim_apply
+al_carriersim_restore
 ```
 
 The existing AirCard runtime also supplies pairing, RSD/Lockdown transport, AirTraffic, syslog support, and device restart support.
@@ -89,7 +89,7 @@ The current Xcode deployment target is iOS 18.0 so the same IPA can be tested on
 7. Tap **Apply**.
 8. After a successful AirLift operation, tap **Reboot iPhone** so CommCenter reloads the carrier selection.
 
-CarrierSIM automatically keeps the original reported carrier-bundle identifier for each IMSI before the first change. **Restore Stock** applies that saved selection again.
+CarrierSIM's native runtime exports the current carrier catalog before a change, preserves its files, directories, and symlinks, then commits the modified tree. **Restore Stock** removes the selected 15-digit IMSI alias, while **Restore All IMSI Links** removes all root-level 15-digit IMSI aliases and preserves the rest of the catalog. If a transaction cannot be confirmed, the runtime attempts to restore the exported original catalog.
 
 ## Carrier-bundle names
 
@@ -110,54 +110,40 @@ A selected bundle must already exist as a signed system carrier bundle on the in
 The GitHub Actions workflow is:
 
 ```text
-.github/workflows/build-ios-ipa.yml
+.github/workflows/carriersim-ios.yml
 ```
 
 It:
 
 1. checks out CarrierSIM;
-2. installs XcodeGen;
-3. downloads the pinned AirCard source;
-4. patches and builds the Rust AirliftFFI runtime;
-5. generates `CarrierSIM.xcodeproj`;
-6. builds `CarrierSIM.app` for `iphoneos` with code signing disabled;
-7. packages `Payload/CarrierSIM.app` into `CarrierSIM-unsigned.ipa`;
-8. uploads the IPA as the `CarrierSIM-unsigned-ipa` Actions artifact.
+2. installs the iOS Rust targets and XcodeGen;
+3. restores a cached AirLift runtime when available;
+4. otherwise downloads the pinned AirCard source and applies `scripts/patch-airlift-for-carriersim.py`;
+5. builds `AirliftFFI.xcframework`;
+6. generates `CarrierSIM.xcodeproj`;
+7. builds `CarrierSIM.app` for `iphoneos` with code signing disabled;
+8. verifies the three CarrierSIM FFI symbols in the final app binary;
+9. packages `Payload/CarrierSIM.app` into `CarrierSIM-unsigned.ipa`;
+10. uploads the IPA and SHA-256 file as the `CarrierSIM-unsigned` Actions artifact.
 
 To build on a Mac manually:
 
 ```bash
 brew install xcodegen
-chmod +x build-ios.sh
-./build-ios.sh
-
-xcodebuild \
-  -project CarrierSIM.xcodeproj \
-  -scheme CarrierSIM \
-  -configuration Release \
-  -sdk iphoneos \
-  -derivedDataPath .build/DerivedData \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGN_IDENTITY="" \
-  build
-
-rm -rf Payload CarrierSIM-unsigned.ipa
-mkdir Payload
-ditto .build/DerivedData/Build/Products/Release-iphoneos/CarrierSIM.app Payload/CarrierSIM.app
-zip -qry CarrierSIM-unsigned.ipa Payload
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+chmod +x scripts/build-ios-ipa.sh
+scripts/build-ios-ipa.sh
 ```
 
 ## Repository layout
 
 ```text
-ios-app/                         SwiftUI application
-airlift-patch/carriersim_exploit.rs
-scripts/patch-airlift.py         AirliftFFI patch step
-build-ios.sh                     pinned native runtime build
-project.yml                      XcodeGen project definition
-.github/workflows/build-ios-ipa.yml
-carrier.py                       original desktop implementation/reference
+ios-app/                                SwiftUI application
+scripts/patch-airlift-for-carriersim.py CarrierSIM AirliftFFI patch
+scripts/build-ios-ipa.sh                 pinned native runtime + IPA build
+project.yml                              XcodeGen project definition
+.github/workflows/carriersim-ios.yml     unsigned IPA CI
+carrier.py                               original desktop implementation/reference
 ```
 
 The original desktop CarrierSIM implementation remains in the repository as a reference for its carrier-catalog logic. The primary `main` workflow is now the iOS IPA app.
